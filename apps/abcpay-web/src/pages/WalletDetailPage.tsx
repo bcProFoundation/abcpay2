@@ -1,10 +1,11 @@
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import { CoinBadge, MultisigBadge } from '../components/ui';
 import { useWallets } from '../context/WalletContext';
 
 export function WalletDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { wallets, showBalance } = useWallets();
   const wallet = wallets.find(w => w.id === id);
 
@@ -40,8 +41,8 @@ export function WalletDetailPage() {
       </header>
 
       <div className="grid grid-cols-3 gap-3 px-4 py-6">
-        <ActionButton label="Send" icon="send" disabled />
-        <ActionButton label="Receive" icon="receive" disabled />
+        <ActionButton label="Send" icon="send" onClick={() => navigate(`/wallet/${wallet.id}/send`)} />
+        <ActionButton label="Receive" icon="receive" onClick={() => navigate(`/wallet/${wallet.id}/receive`)} />
         <ActionButton label="History" icon="history" disabled />
       </div>
 
@@ -52,6 +53,12 @@ export function WalletDetailPage() {
             This is a {wallet.m}-of-{wallet.n} multisig wallet. Transaction proposals require{' '}
             {wallet.m} copayer signature{wallet.m > 1 ? 's' : ''} before broadcasting.
           </p>
+          {wallet.secret && (
+            <div className="mt-3">
+              <p className="text-xs text-[var(--abcpay-muted)] mb-1">Invitation secret (share with copayers):</p>
+              <p className="text-xs font-mono break-all bg-black/20 p-2 rounded-lg">{wallet.secret}</p>
+            </div>
+          )}
           <p className="text-xs text-[var(--abcpay-muted)] mt-3 font-mono break-all">
             Wallet ID: {wallet.id}
           </p>
@@ -71,11 +78,13 @@ import type { ReactNode } from 'react';
 function ActionButton({
   label,
   icon,
-  disabled
+  disabled,
+  onClick
 }: {
   label: string;
   icon: string;
   disabled?: boolean;
+  onClick?: () => void;
 }) {
   const icons: Record<string, ReactNode> = {
     send: (
@@ -98,6 +107,7 @@ function ActionButton({
   return (
     <button
       disabled={disabled}
+      onClick={onClick}
       className="flex flex-col items-center gap-2 p-4 bg-[var(--abcpay-surface)] rounded-xl hover:bg-[var(--abcpay-surface-2)] disabled:opacity-40 transition-colors"
     >
       {icons[icon]}

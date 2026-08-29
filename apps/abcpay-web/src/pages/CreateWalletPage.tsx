@@ -4,8 +4,9 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { COIN_CONFIGS, supportedCoins } from '@bcpros/abcpay-models';
-import { api } from '../lib/api';
-import { useWallets, walletFromResponse } from '../context/WalletContext';
+import { createWalletWithBwc } from '../lib/bwc';
+import { saveCredentials } from '../lib/credentials-store';
+import { useWallets, walletFromBwc } from '../context/WalletContext';
 
 const createWalletSchema = z.object({
   name: z.string().min(1, 'Wallet name is required'),
@@ -18,21 +19,13 @@ const createWalletSchema = z.object({
 
 type CreateWalletForm = z.infer<typeof createWalletSchema>;
 
-function generateKeyPair() {
-  const id = crypto.randomUUID().replace(/-/g, '');
-  return {
-    pubKey: `02${id.slice(0, 62)}`,
-    copayerId: id.slice(0, 32),
-    xPubKey: `xpub${id}`,
-    requestPubKey: `03${id.slice(0, 62)}`
-  };
-}
-
 export function CreateWalletPage() {
   const navigate = useNavigate();
   const { addWallet } = useWallets();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [joinSecret, setJoinSecret] = useState('');
+  const [createdWalletId, setCreatedWalletId] = useState('');
 
   const { control, handleSubmit, watch, setValue } = useForm<CreateWalletForm>({
     resolver: zodResolver(createWalletSchema),
@@ -52,32 +45,74 @@ export function CreateWalletPage() {
   const onSubmit = async (data: CreateWalletForm) => {
     setLoading(true);
     setError('');
+    setJoinSecret('');
 
     try {
-      const keys = generateKeyPair();
       const m = data.isMultisig ? data.m : 1;
       const n = data.isMultisig ? data.n : 1;
 
-      const wallet = await api.createWallet({
+      const result = await createWalletWithBwc({
         name: data.name,
-        m,
-        n,
+        copayerName: data.copayerName,
         coin: data.coin,
-        network: 'livenet',
-        addressType: 'P2SH',
-        pubKey: keys.pubKey,
-        usePurpose48: n > 1
+        m,
+        n
       });
 
-      const localWallet = walletFromResponse(wallet, keys.copayerId, data.copayerName);
+      saveCredentials(result.walletId, result.credentials);
+
+      const localWallet = walletFromBwc(
+        result.walletId,
+        data.name,
+        data.coin,
+        m,
+        n,
+        result.copayerId,
+        data.copayerName,
+        n === 1 ? 'complete' : 'pending',
+        result.secret
+      );
+
       addWallet(localWallet);
-      navigate(`/wallet/${wallet.id}`);
+
+      if (result.secret) {
+        setJoinSecret(result.secret);
+        setCreatedWalletId(result.walletId);
+      } else {
+        navigate(`/wallet/${result.walletId}`);
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setLoading(false);
     }
   };
+
+  if (joinSecret) {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-8">
+        <h1 className="text-lg font-medium text-center mb-4">Wallet Created</h1>
+        <p className="text-sm text-[var(--abcpay-muted)] mb-4">
+          Share this invitation secret with your copayers so they can join the shared wallet:
+        </p>
+        <div className="p-4 bg-[var(--abcpay-surface)] rounded-xl font-mono text-xs break-all mb-6">
+          {joinSecret}
+        </div>
+        <button
+          onClick={() => navigator.clipboard.writeText(joinSecret)}
+          className="w-full py-3 mb-3 bg-[var(--abcpay-surface)] rounded-xl font-medium hover:bg-[var(--abcpay-surface-2)]"
+        >
+          Copy Secret
+        </button>
+        <button
+          onClick={() => navigate(`/wallet/${createdWalletId}`)}
+          className="w-full py-4 bg-[var(--abcpay-accent)] rounded-xl font-medium"
+        >
+          Go to Wallet
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-lg mx-auto">

@@ -4,25 +4,17 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { supportedCoins } from '@bcpros/abcpay-models';
-import { api } from '../lib/api';
-import { useWallets, walletFromResponse } from '../context/WalletContext';
+import { joinWalletWithBwc } from '../lib/bwc';
+import { saveCredentials } from '../lib/credentials-store';
+import { useWallets, walletFromBwc } from '../context/WalletContext';
 
 const joinWalletSchema = z.object({
-  walletId: z.string().min(1, 'Wallet ID is required'),
+  secret: z.string().min(1, 'Invitation secret is required'),
   name: z.string().min(1, 'Your name is required'),
   coin: z.enum(supportedCoins)
 });
 
 type JoinWalletForm = z.infer<typeof joinWalletSchema>;
-
-function generateKeyPair() {
-  const id = crypto.randomUUID().replace(/-/g, '');
-  return {
-    copayerId: id.slice(0, 32),
-    xPubKey: `xpub${id}`,
-    requestPubKey: `03${id.slice(0, 62)}`
-  };
-}
 
 export function JoinWalletPage() {
   const navigate = useNavigate();
@@ -32,7 +24,7 @@ export function JoinWalletPage() {
 
   const { control, handleSubmit } = useForm<JoinWalletForm>({
     resolver: zodResolver(joinWalletSchema),
-    defaultValues: { walletId: '', name: '', coin: 'xec' }
+    defaultValues: { secret: '', name: '', coin: 'xec' }
   });
 
   const onSubmit = async (data: JoinWalletForm) => {
@@ -40,17 +32,27 @@ export function JoinWalletPage() {
     setError('');
 
     try {
-      const keys = generateKeyPair();
-      const wallet = await api.joinWallet(data.walletId, {
-        name: data.name,
-        coin: data.coin,
-        xPubKey: keys.xPubKey,
-        requestPubKey: keys.requestPubKey
+      const result = await joinWalletWithBwc({
+        secret: data.secret.trim(),
+        copayerName: data.name,
+        coin: data.coin
       });
 
-      const localWallet = walletFromResponse(wallet, keys.copayerId, data.name);
+      saveCredentials(result.walletId, result.credentials);
+
+      const localWallet = walletFromBwc(
+        result.walletId,
+        'Shared Wallet',
+        data.coin,
+        0,
+        0,
+        result.copayerId,
+        data.name,
+        'pending'
+      );
+
       addWallet(localWallet);
-      navigate(`/wallet/${wallet.id}`);
+      navigate(`/wallet/${result.walletId}`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -66,19 +68,20 @@ export function JoinWalletPage() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="px-4 py-6 space-y-5">
         <p className="text-sm text-[var(--abcpay-muted)]">
-          Enter the wallet invitation ID shared by the wallet creator.
+          Paste the invitation secret shared by the wallet creator.
         </p>
 
         <div>
-          <label className="block text-sm text-[var(--abcpay-muted)] mb-2">Wallet ID</label>
+          <label className="block text-sm text-[var(--abcpay-muted)] mb-2">Invitation Secret</label>
           <Controller
-            name="walletId"
+            name="secret"
             control={control}
             render={({ field, fieldState }) => (
               <>
-                <input
+                <textarea
                   {...field}
-                  placeholder="Paste wallet ID"
+                  rows={3}
+                  placeholder="Paste invitation secret"
                   className="w-full px-4 py-3 bg-[var(--abcpay-surface)] rounded-xl border border-white/10 focus:border-[var(--abcpay-accent)] outline-none font-mono text-sm"
                 />
                 {fieldState.error && (
@@ -105,6 +108,26 @@ export function JoinWalletPage() {
                   <p className="text-red-400 text-sm mt-1">{fieldState.error.message}</p>
                 )}
               </>
+            )}
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm text-[var(--abcpay-muted)] mb-2">Currency</label>
+          <Controller
+            name="coin"
+            control={control}
+            render={({ field }) => (
+              <select
+                {...field}
+                className="w-full px-4 py-3 bg-[var(--abcpay-surface)] rounded-xl border border-white/10 focus:border-[var(--abcpay-accent)] outline-none"
+              >
+                {supportedCoins.map(c => (
+                  <option key={c} value={c}>
+                    {c.toUpperCase()}
+                  </option>
+                ))}
+              </select>
             )}
           />
         </div>

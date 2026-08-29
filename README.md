@@ -102,12 +102,14 @@ Copy `.env.example` to `.env` and adjust Chronik URLs if needed.
 
 ## Roadmap
 
-- [ ] Integrate `@bcpros/bitcore-wallet-client` for real key derivation and signing
-- [ ] Full send/receive flows with QR scanning
-- [ ] Real fiat rate provider (CoinGecko)
+- [x] Real HD key derivation via `@bcpros/crypto-wallet-core` + `@bcpros/bitcore-mnemonic`
+- [x] Receive flow with QR code and address generation
+- [x] BWS request signature auth (`x-identity` / `x-signature`)
+- [x] CoinGecko fiat rates
+- [x] BWC-compatible API responses (`/v2/wallets/`, `/v4/addresses/`, etc.)
+- [ ] Full send flow with tx building and signing
 - [ ] WebSocket notifications for tx proposals
 - [ ] Capacitor mobile wrapper
-- [ ] Request signature auth (x-identity / x-signature headers)
 
 ## Related Repos
 
