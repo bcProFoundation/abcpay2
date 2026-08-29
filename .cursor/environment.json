@@ -5,8 +5,8 @@
     "dockerfile": "Dockerfile",
     "context": ".."
   },
-  "install": "bash .cursor/scripts/cloud-agent-install.sh",
-  "start": "bash .cursor/scripts/cloud-agent-start.sh",
+  "install": "bash scripts/cloud-install.sh",
+  "start": "bash scripts/cloud-start.sh",
   "ports": [
     { "name": "web", "port": 5173 },
     { "name": "bws-api", "port": 3232 },
