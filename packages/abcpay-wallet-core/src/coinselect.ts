@@ -1,0 +1,62 @@
+import type { SupportedCoin } from '@bcpros/abcpay-models';
+import { estimateTxSize } from './tx';
+
+export interface SelectableUtxo {
+  txid: string;
+  vout: number;
+  satoshis: number;
+  address: string;
+  path?: string;
+  confirmations?: number;
+}
+
+export interface CoinSelectResult {
+  inputs: SelectableUtxo[];
+  fee: number;
+  change: number;
+  totalInput: number;
+}
+
+export function dustThreshold(coin: SupportedCoin): number {
+  return coin === 'xec' ? 546 : 1_000_000;
+}
+
+export function defaultFeePerKb(coin: SupportedCoin): number {
+  return coin === 'xec' ? 2000 : 100_000_000;
+}
+
+export function selectUtxos(opts: {
+  coin: SupportedCoin;
+  utxos: SelectableUtxo[];
+  amount: number;
+  feePerKb?: number;
+  m?: number;
+  n?: number;
+  outputCount?: number;
+}): CoinSelectResult {
+  const feePerKb = opts.feePerKb ?? defaultFeePerKb(opts.coin);
+  const dust = dustThreshold(opts.coin);
+  const sorted = [...opts.utxos].sort((a, b) => b.satoshis - a.satoshis);
+  const selected: SelectableUtxo[] = [];
+  let totalInput = 0;
+  const m = opts.m ?? 1;
+  const n = opts.n ?? 1;
+
+  for (const utxo of sorted) {
+    selected.push(utxo);
+    totalInput += utxo.satoshis;
+    const size = estimateTxSize(selected.length, opts.outputCount ?? 2, n, m);
+    const fee = Math.max(1, Math.ceil((size * feePerKb) / 1000));
+    if (totalInput >= opts.amount + fee) {
+      const change = totalInput - opts.amount - fee;
+      return {
+        inputs: selected,
+        fee,
+        change: change >= dust ? change : 0,
+        totalInput
+      };
+    }
+  }
+
+  throw new Error('Insufficient funds');
+}

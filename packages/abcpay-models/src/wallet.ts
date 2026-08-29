@@ -139,6 +139,19 @@ export const txProposalStatusSchema = z.enum([
   'broadcasted'
 ]);
 
+export const proposalInputSchema = z.object({
+  txid: z.string(),
+  vout: z.number(),
+  satoshis: z.number(),
+  address: z.string(),
+  path: z.string(),
+  publicKeys: z.array(z.string()),
+  redeemScript: z.string().optional(),
+  scriptPubKey: z.string().optional()
+});
+
+export type ProposalInput = z.infer<typeof proposalInputSchema>;
+
 export const txProposalSchema = z.object({
   id: z.string(),
   walletId: z.string(),
@@ -160,6 +173,7 @@ export const txProposalSchema = z.object({
   message: z.string().optional(),
   payProUrl: z.string().optional(),
   changeAddress: z.object({ address: z.string(), path: z.string() }).optional(),
+  inputs: z.array(proposalInputSchema).optional(),
   requiredSignatures: z.number(),
   requiredRejections: z.number(),
   status: txProposalStatusSchema,
@@ -176,7 +190,7 @@ export const txProposalSchema = z.object({
       createdOn: z.number()
     })
   ),
-  signatures: z.record(z.string(), z.string()).optional()
+  signatures: z.record(z.string(), z.array(z.string())).optional()
 });
 
 export type TxProposal = z.infer<typeof txProposalSchema>;
@@ -195,7 +209,9 @@ export const createTxProposalRequestSchema = z.object({
       feePerKb: z.number().optional(),
       excludeUnconfirmedUtxos: z.boolean().optional(),
       message: z.string().optional(),
-      payProUrl: z.string().optional()
+      payProUrl: z.string().optional(),
+      inputs: z.array(proposalInputSchema).optional(),
+      changeAddress: z.object({ address: z.string(), path: z.string() }).optional()
     })
   )
 });
@@ -216,3 +232,15 @@ export const fiatRateSchema = z.object({
 });
 
 export type FiatRate = z.infer<typeof fiatRateSchema>;
+
+export const joinInfoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  coin: z.enum(supportedCoins),
+  m: z.number(),
+  n: z.number(),
+  status: walletStatusSchema,
+  copayerCount: z.number()
+});
+
+export type JoinInfo = z.infer<typeof joinInfoSchema>;

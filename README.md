@@ -1,115 +1,58 @@
 # AbcPay v2
 
-Modern rebuild of AbcPay wallet + BWS backend, supporting **eCash (XEC)** and **Dogecoin (DOGE)** only, powered by the **Chronik indexer**.
+Modern rebuild of AbcPay + Bitcore Wallet Service for **eCash (XEC)** and **Dogecoin (DOGE)** only, using **Chronik**.
 
-## Architecture
+Private keys never leave the browser. The API stores xpubs and coordinates m-of-n proposals.
 
 ```
-┌─────────────────────┐     BWS-compatible API     ┌─────────────────────┐
-│   abcpay-web        │ ◄────────────────────────► │   abcpay-api        │
-│   React + Vite      │                            │   Bun + Hono          │
-│   (familiar UI)     │                            │   Drizzle + Postgres  │
-└─────────────────────┘                            └──────────┬──────────┘
-                                                              │
-                                                   ┌──────────▼──────────┐
-                                                   │   Chronik Indexer   │
-                                                   │   XEC + DOGE        │
-                                                   └─────────────────────┘
+React (AbcPay UI)  →  Hono BWS API  →  PostgreSQL
+                           └── Chronik (XEC + DOGE)
 ```
 
-### What's included
+## Stack
 
-| Component | Tech | Purpose |
-|-----------|------|---------|
-| `apps/abcpay-web` | React 19, Vite, Tailwind | Wallet UI (Home / Wallets / Scan tabs) |
-| `apps/abcpay-api` | Bun, Hono, Drizzle | BWS-compatible wallet coordination API |
-| `packages/abcpay-models` | Zod | Shared types and validation |
-| `packages/abcpay-wallet-core` | chronik-client | Blockchain data via Chronik |
+| Layer | Tech |
+|-------|------|
+| Web | React 19, Vite, Tailwind — Home / Scan / Wallets tabs |
+| API | TypeScript, Hono, Node (tsx) or Bun |
+| DB | PostgreSQL (Drizzle) |
+| Indexer | Chronik (`chronik.e.cash`, `chronik.pay2stay.com/doge`, …) |
+| Crypto | BIP39/BIP32 (`@scure/*`), XEC CashAddr, DOGE Base58, P2PKH + P2SH multisig |
 
-### Supported features
+## Features
 
-- XEC and DOGE wallets only
-- m-of-n multisig shared wallets
-- Transaction proposal coordination (create, sign, reject, broadcast)
-- Chronik-backed UTXO lookup and tx broadcast
-- Postgres instead of MongoDB
+- HD wallets from a 12-word phrase
+- XEC and DOGE only
+- 1-of-1 and m-of-n shared wallets
+- Receive address + QR, send, history
+- Tx proposal sign/reject/broadcast for multisig
+- Request signatures (`x-identity` / `x-signature`)
+- CoinGecko USD rates
+- No BTC/BCH/LTC/ETH, no BitPay buy/exchange/card extras
 
-### Removed (vs legacy AbcPay/Copay)
-
-- BTC, BCH, LTC, XPI, ETH, ERC-20 tokens
-- Buy crypto, exchange, debit card, gift cards, WalletConnect
-- SLP/eToken support (can be re-added via Chronik token index)
-- Mobile native builds (web-first; Capacitor can be added later)
-
-## Quick Start
-
-### Prerequisites
-
-- Node.js 20+
-- pnpm 9+
-- Bun 1.1+ (for API runtime)
-- Docker (for Postgres)
-
-### Setup
+## Quick start
 
 ```bash
-# Start Postgres
+# Postgres
 docker compose up -d
 
-# Install dependencies
+cp .env.example .env
 pnpm install
-
-# Build shared packages
 pnpm build
-
-# Push database schema
 pnpm db:push
-
-# Start dev servers (API + Web)
 pnpm dev
 ```
 
-- **Web UI**: http://localhost:5173
-- **BWS API**: http://localhost:3232/bws/api
+- Web: http://localhost:5173
+- API: http://localhost:3232/bws/api/health
 
-### Environment
+## Multisig
 
-Copy `.env.example` to `.env` and adjust Chronik URLs if needed.
+1. Create a shared wallet and back up the phrase
+2. Share the Wallet ID
+3. Copayers join (each device keeps its own phrase)
+4. Any copayer sends a proposal → others Sign on the wallet screen → broadcast at `m` signatures
 
-## API Endpoints (BWS-compatible)
+## Environment
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/v2/wallets/` | Create wallet |
-| POST | `/v1/wallets/:id/copayers/` | Join multisig wallet |
-| GET | `/v3/wallets/` | Get wallet info |
-| POST | `/v3/addresses/` | Register address |
-| GET | `/v1/balance/` | Wallet balance |
-| GET | `/v1/utxos/` | List UTXOs |
-| POST | `/v3/txproposals/` | Create tx proposal |
-| POST | `/v1/txproposals/:id/signatures/` | Sign proposal |
-| POST | `/v1/txproposals/:id/broadcast/` | Broadcast signed tx |
-| POST | `/v1/broadcast_raw/` | Raw tx broadcast |
-| GET | `/v1/feelevels/` | Fee estimation |
-| GET | `/v3/fiatrates/:code/` | Fiat rates |
-
-## Multisig Flow
-
-1. Creator makes a shared wallet (e.g. 2-of-3) on the Create Wallet page
-2. Creator shares the Wallet ID with copayers
-3. Copayers join via Join Wallet page
-4. Any copayer creates a tx proposal → others sign → broadcast when m signatures reached
-
-## Roadmap
-
-- [ ] Integrate `@bcpros/bitcore-wallet-client` for real key derivation and signing
-- [ ] Full send/receive flows with QR scanning
-- [ ] Real fiat rate provider (CoinGecko)
-- [ ] WebSocket notifications for tx proposals
-- [ ] Capacitor mobile wrapper
-- [ ] Request signature auth (x-identity / x-signature headers)
-
-## Related Repos
-
-- [AbcPay (legacy)](https://github.com/bcProFoundation/AbcPay) — Angular/Ionic frontend
-- [Bitcore (legacy BWS)](https://github.com/bcProFoundation/bitcore) — MongoDB-based BWS
+See `.env.example`. Set `REQUIRE_AUTH=0` only for local debugging.

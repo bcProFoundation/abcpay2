@@ -1,8 +1,16 @@
 import { randomBytes } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import type { CreateWalletRequest, JoinWalletRequest, SupportedCoin } from '@bcpros/abcpay-models';
+import type { CreateWalletRequest, JoinWalletRequest, SupportedCoin, TxHistoryItem } from '@bcpros/abcpay-models';
 import { isSupportedCoin } from '@bcpros/abcpay-models';
-import { chainFromCoin, getBalanceForAddress, getUtxosForAddress } from '@bcpros/abcpay-wallet-core';
+import {
+  chainFromCoin,
+  copayerIdFromXpub,
+  deriveWalletAddress,
+  getBalanceForAddress,
+  getTxHistoryForAddress,
+  getUtxosForAddress,
+  relativePath
+} from '@bcpros/abcpay-wallet-core';
 import { db } from '../db';
 import { addresses, copayerLookup, copayers, wallets } from '../db/schema';
 import { config } from '../config';
@@ -11,13 +19,16 @@ function generateId(): string {
   return randomBytes(16).toString('hex');
 }
 
+function chronikCfg() {
+  return { xecUrls: config.chronik.xecUrls, dogeUrls: config.chronik.dogeUrls };
+}
+
 export class WalletService {
   async createWallet(req: CreateWalletRequest) {
     if (!isSupportedCoin(req.coin)) {
       throw new Error('Unsupported coin');
     }
-
-    if (req.n > 1 && req.m > req.n) {
+    if (req.n < 1 || req.m < 1 || req.m > req.n) {
       throw new Error('Invalid m-of-n configuration');
     }
 
@@ -34,8 +45,8 @@ export class WalletService {
         coin: req.coin,
         chain,
         network: req.network,
-        addressType: req.addressType,
-        status: req.n === 1 ? 'complete' : 'pending',
+        addressType: req.n > 1 ? 'P2SH' : 'P2PKH',
+        status: 'pending',
         pubKey: req.pubKey,
         publicKeyRing: [],
         singleAddress: req.singleAddress ?? false,
@@ -54,12 +65,14 @@ export class WalletService {
     if (wallet.coin !== req.coin) throw new Error('Coin mismatch');
 
     const existingCopayers = await db.select().from(copayers).where(eq(copayers.walletId, req.walletId));
-
     if (existingCopayers.length >= wallet.n) {
       throw new Error('Wallet is full');
     }
+    if (existingCopayers.some(c => c.xPubKey === req.xPubKey)) {
+      throw new Error('Copayer already joined');
+    }
 
-    const copayerId = generateId();
+    const copayerId = copayerIdFromXpub(req.coin, req.xPubKey);
 
     await db.insert(copayers).values({
       copayerId,
@@ -74,12 +87,10 @@ export class WalletService {
     await db.insert(copayerLookup).values({ copayerId, walletId: req.walletId });
 
     const updatedCopayers = await db.select().from(copayers).where(eq(copayers.walletId, req.walletId));
-
     const publicKeyRing = updatedCopayers.map(c => ({
       xPubKey: c.xPubKey,
       requestPubKey: c.requestPubKey
     }));
-
     const status = updatedCopayers.length >= wallet.n ? 'complete' : 'pending';
 
     await db
@@ -88,16 +99,83 @@ export class WalletService {
       .where(eq(wallets.walletId, req.walletId));
 
     const [updated] = await db.select().from(wallets).where(eq(wallets.walletId, req.walletId)).limit(1);
+    const response = this.toWalletResponse(updated, updatedCopayers);
 
-    return this.toWalletResponse(updated, updatedCopayers);
+    if (status === 'complete') {
+      await this.createAddress(req.walletId, false);
+    }
+
+    return response;
+  }
+
+  async getJoinInfo(walletId: string) {
+    const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
+    if (!wallet) return null;
+    const walletCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
+    return {
+      id: wallet.walletId,
+      name: wallet.name,
+      coin: wallet.coin,
+      m: wallet.m,
+      n: wallet.n,
+      status: wallet.status,
+      copayerCount: walletCopayers.length
+    };
   }
 
   async getWallet(walletId: string) {
     const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
     if (!wallet) return null;
-
     const walletCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
     return this.toWalletResponse(wallet, walletCopayers);
+  }
+
+  async getCopayer(copayerId: string) {
+    const [row] = await db.select().from(copayers).where(eq(copayers.copayerId, copayerId)).limit(1);
+    return row ?? null;
+  }
+
+  async createAddress(walletId: string, isChange: boolean) {
+    const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
+    if (!wallet) throw new Error('Wallet not found');
+    if (wallet.status !== 'complete') throw new Error('Wallet is not complete');
+
+    const walletCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
+    const existing = await db
+      .select()
+      .from(addresses)
+      .where(and(eq(addresses.walletId, walletId), eq(addresses.isChange, isChange)));
+
+    const index = existing.length;
+    const path = relativePath(isChange, index);
+    const derived = deriveWalletAddress({
+      coin: wallet.coin as SupportedCoin,
+      network: wallet.network as 'livenet' | 'testnet',
+      xPubKeys: walletCopayers.map(c => c.xPubKey),
+      m: wallet.m,
+      n: wallet.n,
+      path
+    });
+
+    return this.registerAddress(
+      walletId,
+      derived.address,
+      derived.path,
+      derived.publicKeys,
+      isChange,
+      derived.redeemScript,
+      derived.scriptPubKey,
+      derived.type
+    );
+  }
+
+  async getMainAddress(walletId: string) {
+    const existing = await db
+      .select()
+      .from(addresses)
+      .where(and(eq(addresses.walletId, walletId), eq(addresses.isChange, false)));
+    if (existing[0]) return existing[0];
+    return this.createAddress(walletId, false);
   }
 
   async registerAddress(
@@ -105,7 +183,10 @@ export class WalletService {
     address: string,
     path: string,
     publicKeys: string[],
-    isChange: boolean
+    isChange: boolean,
+    redeemScript?: string,
+    scriptPubKey?: string,
+    type?: string
   ) {
     const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
     if (!wallet) throw new Error('Wallet not found');
@@ -115,7 +196,6 @@ export class WalletService {
       .from(addresses)
       .where(and(eq(addresses.walletId, walletId), eq(addresses.address, address)))
       .limit(1);
-
     if (existing) return existing;
 
     const [addr] = await db
@@ -127,12 +207,12 @@ export class WalletService {
         publicKeys,
         coin: wallet.coin,
         network: wallet.network,
-        type: wallet.addressType,
+        type: type ?? wallet.addressType,
         isChange
       })
       .returning();
 
-    return addr;
+    return { ...addr, redeemScript, scriptPubKey };
   }
 
   async getWalletAddresses(walletId: string) {
@@ -141,18 +221,30 @@ export class WalletService {
 
   async getBalance(walletId: string) {
     const walletAddresses = await this.getWalletAddresses(walletId);
-    const chain = chainFromCoin(walletAddresses[0]?.coin as SupportedCoin ?? 'xec');
+    if (walletAddresses.length === 0) {
+      return {
+        totalAmount: 0,
+        lockedAmount: 0,
+        availableAmount: 0,
+        totalConfirmedAmount: 0,
+        lockedConfirmedAmount: 0,
+        availableConfirmedAmount: 0,
+        byAddress: {}
+      };
+    }
 
+    const chain = chainFromCoin(walletAddresses[0].coin as SupportedCoin);
     let total = 0;
     const byAddress: Record<string, number> = {};
 
     for (const addr of walletAddresses) {
-      const balance = await getBalanceForAddress(chain, addr.address, {
-        xecUrls: config.chronik.xecUrls,
-        dogeUrls: config.chronik.dogeUrls
-      });
-      byAddress[addr.address] = balance;
-      total += balance;
+      try {
+        const balance = await getBalanceForAddress(chain, addr.address, chronikCfg());
+        byAddress[addr.address] = balance;
+        total += balance;
+      } catch {
+        byAddress[addr.address] = 0;
+      }
     }
 
     return {
@@ -174,23 +266,62 @@ export class WalletService {
     const allUtxos = [];
 
     for (const addr of walletAddresses) {
-      const utxos = await getUtxosForAddress(chain, addr.address, {
-        xecUrls: config.chronik.xecUrls,
-        dogeUrls: config.chronik.dogeUrls
-      });
-
-      for (const utxo of utxos) {
-        allUtxos.push({
-          ...utxo,
-          vout: utxo.vout,
-          amount: utxo.satoshis,
-          path: addr.path,
-          locked: false
-        });
+      try {
+        const utxos = await getUtxosForAddress(chain, addr.address, chronikCfg());
+        for (const utxo of utxos) {
+          allUtxos.push({
+            ...utxo,
+            amount: utxo.satoshis,
+            path: addr.path,
+            publicKeys: addr.publicKeys as string[],
+            locked: false
+          });
+        }
+      } catch {
+        // indexer unavailable for this address
       }
     }
 
     return allUtxos;
+  }
+
+  async getHistory(walletId: string): Promise<TxHistoryItem[]> {
+    const walletAddresses = await this.getWalletAddresses(walletId);
+    if (walletAddresses.length === 0) return [];
+    const chain = chainFromCoin(walletAddresses[0].coin as SupportedCoin);
+    const items: TxHistoryItem[] = [];
+    const seen = new Set<string>();
+
+    for (const addr of walletAddresses) {
+      try {
+        const history = await getTxHistoryForAddress(chain, addr.address, chronikCfg());
+        for (const item of history) {
+          if (seen.has(item.txid)) continue;
+          seen.add(item.txid);
+          items.push(item);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return items.sort((a, b) => b.time - a.time);
+  }
+
+  toAddressResponse(addr: typeof addresses.$inferSelect, extras?: { redeemScript?: string; scriptPubKey?: string }) {
+    return {
+      version: '1.0.0',
+      createdOn: addr.createdAt.getTime(),
+      address: addr.address,
+      path: addr.path,
+      publicKeys: addr.publicKeys as string[],
+      coin: addr.coin,
+      network: addr.network,
+      type: addr.type,
+      isChange: addr.isChange,
+      redeemScript: extras?.redeemScript,
+      scriptPubKey: extras?.scriptPubKey
+    };
   }
 
   private toWalletResponse(wallet: typeof wallets.$inferSelect, walletCopayers: (typeof copayers.$inferSelect)[]) {

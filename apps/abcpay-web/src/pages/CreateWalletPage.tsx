@@ -4,8 +4,9 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { COIN_CONFIGS, supportedCoins } from '@bcpros/abcpay-models';
+import { createCredentials } from '@bcpros/abcpay-wallet-core';
 import { api } from '../lib/api';
-import { useWallets, walletFromResponse } from '../context/WalletContext';
+import { useWallets, walletFromResponse, type StoredCredentials } from '../context/WalletContext';
 
 const createWalletSchema = z.object({
   name: z.string().min(1, 'Wallet name is required'),
@@ -18,21 +19,12 @@ const createWalletSchema = z.object({
 
 type CreateWalletForm = z.infer<typeof createWalletSchema>;
 
-function generateKeyPair() {
-  const id = crypto.randomUUID().replace(/-/g, '');
-  return {
-    pubKey: `02${id.slice(0, 62)}`,
-    copayerId: id.slice(0, 32),
-    xPubKey: `xpub${id}`,
-    requestPubKey: `03${id.slice(0, 62)}`
-  };
-}
-
 export function CreateWalletPage() {
   const navigate = useNavigate();
-  const { addWallet } = useWallets();
+  const { addWallet, setPendingMnemonic } = useWallets();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [backup, setBackup] = useState<{ mnemonic: string; walletId: string } | null>(null);
 
   const { control, handleSubmit, watch, setValue } = useForm<CreateWalletForm>({
     resolver: zodResolver(createWalletSchema),
@@ -52,11 +44,10 @@ export function CreateWalletPage() {
   const onSubmit = async (data: CreateWalletForm) => {
     setLoading(true);
     setError('');
-
     try {
-      const keys = generateKeyPair();
       const m = data.isMultisig ? data.m : 1;
       const n = data.isMultisig ? data.n : 1;
+      const creds = createCredentials({ coin: data.coin, isMultisig: n > 1, usePurpose48: n > 1 });
 
       const wallet = await api.createWallet({
         name: data.name,
@@ -64,20 +55,63 @@ export function CreateWalletPage() {
         n,
         coin: data.coin,
         network: 'livenet',
-        addressType: 'P2SH',
-        pubKey: keys.pubKey,
+        addressType: n > 1 ? 'P2SH' : 'P2PKH',
+        pubKey: creds.walletPubKey,
         usePurpose48: n > 1
       });
 
-      const localWallet = walletFromResponse(wallet, keys.copayerId, data.copayerName);
-      addWallet(localWallet);
-      navigate(`/wallet/${wallet.id}`);
+      const joined = await api.joinWallet(wallet.id, {
+        name: data.copayerName,
+        coin: data.coin,
+        xPubKey: creds.xPubKey,
+        requestPubKey: creds.requestPubKey
+      });
+
+      const me = joined.copayers.find(c => c.xPubKey === creds.xPubKey);
+      const stored: StoredCredentials = {
+        ...creds,
+        walletId: joined.id,
+        copayerId: me?.id ?? creds.copayerId,
+        copayerName: data.copayerName
+      };
+      addWallet(walletFromResponse(joined, stored.copayerId, data.copayerName), stored);
+      setPendingMnemonic(creds.mnemonic);
+      setBackup({ mnemonic: creds.mnemonic, walletId: joined.id });
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setLoading(false);
     }
   };
+
+  if (backup) {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-6">
+        <h1 className="text-lg font-medium text-center mb-4">Backup Recovery Phrase</h1>
+        <p className="text-sm text-[var(--abcpay-muted)] mb-4">
+          Write these 12 words down and store them offline. Anyone with this phrase can spend your funds.
+        </p>
+        <div className="grid grid-cols-3 gap-2 p-4 bg-[var(--abcpay-surface)] rounded-2xl mb-6">
+          {backup.mnemonic.split(' ').map((word, i) => (
+            <div key={word + i} className="text-sm">
+              <span className="text-[var(--abcpay-muted)] mr-1">{i + 1}.</span>
+              {word}
+            </div>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setPendingMnemonic(null);
+            navigate(`/wallet/${backup.walletId}`);
+          }}
+          className="w-full py-4 bg-[var(--abcpay-accent)] rounded-xl font-medium"
+        >
+          I have saved my phrase
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-lg mx-auto">
@@ -86,7 +120,7 @@ export function CreateWalletPage() {
       </header>
 
       <form onSubmit={handleSubmit(onSubmit)} className="px-4 py-6 space-y-5">
-        <Field label="Wallet Name" name="name" control={control} placeholder="My Wallet" />
+        <Field label="Wallet Name" name="name" control={control} placeholder="Personal Wallet" />
         <Field label="Your Name" name="copayerName" control={control} placeholder="Alice" />
 
         <div>
@@ -125,32 +159,25 @@ export function CreateWalletPage() {
         </div>
 
         {COIN_CONFIGS[coin].hasMultiSig && (
-          <div>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <Controller
-                name="isMultisig"
-                control={control}
-                render={({ field }) => (
-                  <input
-                    type="checkbox"
-                    checked={field.value}
-                    onChange={e => {
-                      field.onChange(e.target.checked);
-                      if (e.target.checked) {
-                        setValue('m', 2);
-                        setValue('n', 3);
-                      } else {
-                        setValue('m', 1);
-                        setValue('n', 1);
-                      }
-                    }}
-                    className="w-5 h-5 rounded"
-                  />
-                )}
-              />
-              <span>Shared Wallet (Multisig)</span>
-            </label>
-          </div>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <Controller
+              name="isMultisig"
+              control={control}
+              render={({ field }) => (
+                <input
+                  type="checkbox"
+                  checked={field.value}
+                  onChange={e => {
+                    field.onChange(e.target.checked);
+                    setValue('m', e.target.checked ? 2 : 1);
+                    setValue('n', e.target.checked ? 3 : 1);
+                  }}
+                  className="w-5 h-5 rounded"
+                />
+              )}
+            />
+            <span>Shared Wallet (Multisig)</span>
+          </label>
         )}
 
         {isMultisig && (
@@ -201,9 +228,7 @@ function Field({
               placeholder={placeholder}
               className="w-full px-4 py-3 bg-[var(--abcpay-surface)] rounded-xl border border-white/10 focus:border-[var(--abcpay-accent)] outline-none"
             />
-            {fieldState.error && (
-              <p className="text-red-400 text-sm mt-1">{fieldState.error.message}</p>
-            )}
+            {fieldState.error && <p className="text-red-400 text-sm mt-1">{fieldState.error.message}</p>}
           </>
         )}
       />

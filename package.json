@@ -13,6 +13,7 @@
     "dev:web": "turbo run dev --filter=@bcpros/abcpay-web",
     "lint": "turbo run lint",
     "type-check": "turbo run type-check",
+    "test": "turbo run test",
     "db:generate": "pnpm --filter @bcpros/abcpay-api db:generate",
     "db:migrate": "pnpm --filter @bcpros/abcpay-api db:migrate",
     "db:push": "pnpm --filter @bcpros/abcpay-api db:push"
