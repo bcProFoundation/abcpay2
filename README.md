@@ -45,7 +45,7 @@ Modern rebuild of AbcPay wallet + BWS backend, supporting **eCash (XEC)** and **
 
 ### Prerequisites
 
-- **Node.js 24+** (Active LTS — see `.nvmrc`)
+- **Node.js 26+** (enters Active LTS Oct 2026 — see `.nvmrc`)
 - **pnpm 9+**
 - **Bun 1.4.0** (pinned — API runtime)
 - **PostgreSQL 18** (Docker image in `docker-compose.yml`, or PGDG packages for native/cloud install)
@@ -81,7 +81,7 @@ Copy `.env.example` to `.env` and adjust Chronik URLs if needed.
 
 | Component | Version | Notes |
 |-----------|---------|--------|
-| Node.js | **24.x** (Active LTS) | `.nvmrc`, `engines.node` |
+| Node.js | **26.x** (LTS from Oct 2026) | `.nvmrc`, `engines.node` |
 | Bun | **1.4.0** | API runtime; `engines.bun` |
 | PostgreSQL | **18** | `postgres:18-alpine` in Compose; PGDG 18 for cloud/native |
 | React | **19.x** | Web UI |
