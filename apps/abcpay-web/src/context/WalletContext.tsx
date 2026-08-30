@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { SupportedCoin } from '@bcpros/abcpay-models';
+import type { SupportedCoin, WalletResponse } from '@bcpros/abcpay-models';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
+import type { WalletCredentials } from '@bcpros/abcpay-wallet-core';
 import { getCredentials } from '../lib/credentials-store';
 import { getWalletBalance as getBalanceFromStored } from '../lib/bwc';
-import { api } from '../lib/api';
+import { api, type AuthContext } from '../lib/api';
 
 export interface LocalWallet {
   id: string;
@@ -19,6 +20,11 @@ export interface LocalWallet {
   secret?: string;
 }
 
+export interface StoredCredentials extends WalletCredentials {
+  walletId: string;
+  copayerName: string;
+}
+
 interface WalletContextValue {
   wallets: LocalWallet[];
   addWallet: (wallet: LocalWallet) => void;
@@ -28,48 +34,81 @@ interface WalletContextValue {
   setShowBalance: (show: boolean) => void;
   totalFiatBalance: string;
   getWalletCredentials: (walletId: string) => string | null;
+  credentialsFor: (walletId: string) => StoredCredentials | undefined;
+  authFor: (walletId: string) => AuthContext | undefined;
+  pendingMnemonic: string | null;
+  setPendingMnemonic: (mnemonic: string | null) => void;
 }
 
 const WalletContext = createContext<WalletContextValue | null>(null);
 
-const STORAGE_KEY = 'abcpay_v2_wallets';
+const WALLETS_KEY = 'abcpay_v2_wallets';
 
 function loadWallets(): LocalWallet[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const raw = localStorage.getItem(WALLETS_KEY);
+    return raw ? (JSON.parse(raw) as LocalWallet[]) : [];
   } catch {
     return [];
   }
 }
 
-function saveWallets(wallets: LocalWallet[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(wallets));
+function parseStoredCredentials(walletId: string, wallets: LocalWallet[]): StoredCredentials | undefined {
+  const raw = getCredentials(walletId);
+  if (!raw) return undefined;
+  try {
+    const stored = JSON.parse(raw) as {
+      walletId: string;
+      copayerId: string;
+      coin: SupportedCoin;
+      keys: WalletCredentials;
+    };
+    const wallet = wallets.find(w => w.id === walletId);
+    return {
+      ...stored.keys,
+      walletId,
+      copayerId: stored.copayerId,
+      copayerName: wallet?.copayerName ?? '',
+      coin: stored.coin ?? stored.keys.coin
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [wallets, setWallets] = useState<LocalWallet[]>(loadWallets);
   const [showBalance, setShowBalance] = useState(true);
   const [totalFiatBalance, setTotalFiatBalance] = useState('$0.00');
+  const [pendingMnemonic, setPendingMnemonic] = useState<string | null>(null);
 
   useEffect(() => {
-    saveWallets(wallets);
+    localStorage.setItem(WALLETS_KEY, JSON.stringify(wallets));
   }, [wallets]);
 
   const addWallet = useCallback((wallet: LocalWallet) => {
-    setWallets(prev => {
-      if (prev.some(w => w.id === wallet.id)) return prev;
-      return [...prev, wallet];
-    });
+    setWallets(prev => (prev.some(w => w.id === wallet.id) ? prev : [...prev, wallet]));
   }, []);
 
   const removeWallet = useCallback((id: string) => {
     setWallets(prev => prev.filter(w => w.id !== id));
   }, []);
 
-  const getWalletCredentials = useCallback((walletId: string) => {
-    return getCredentials(walletId);
-  }, []);
+  const getWalletCredentials = useCallback((walletId: string) => getCredentials(walletId), []);
+
+  const credentialsFor = useCallback(
+    (walletId: string) => parseStoredCredentials(walletId, wallets),
+    [wallets]
+  );
+
+  const authFor = useCallback(
+    (walletId: string): AuthContext | undefined => {
+      const creds = parseStoredCredentials(walletId, wallets);
+      if (!creds) return undefined;
+      return { walletId, copayerId: creds.copayerId, requestPrivKey: creds.requestPrivKey };
+    },
+    [wallets]
+  );
 
   const refreshBalances = useCallback(async () => {
     let totalFiat = 0;
@@ -77,14 +116,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const updated = await Promise.all(
       wallets.map(async wallet => {
         try {
-          const creds = getCredentials(wallet.id);
+          const auth = authFor(wallet.id);
           let balance = 0;
 
-          if (creds) {
+          if (auth) {
             try {
-              balance = await getBalanceFromStored(creds);
+              const remoteBalance = await api.getBalance(auth);
+              balance = remoteBalance.totalAmount;
             } catch {
-              balance = wallet.balance;
+              const creds = getCredentials(wallet.id);
+              if (creds) {
+                try {
+                  balance = await getBalanceFromStored(creds);
+                } catch {
+                  balance = wallet.balance;
+                }
+              }
             }
           }
 
@@ -94,10 +141,27 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           const fiatAmount = amount * fiat.rate;
           totalFiat += fiatAmount;
 
+          let status = wallet.status;
+          let m = wallet.m;
+          let n = wallet.n;
+          if (auth) {
+            try {
+              const remote = await api.getWallet(auth);
+              status = remote.status;
+              m = remote.m;
+              n = remote.n;
+            } catch {
+              // keep local values
+            }
+          }
+
           return {
             ...wallet,
             balance,
-            fiatBalance: `$${fiatAmount.toFixed(2)}`
+            fiatBalance: `$${fiatAmount.toFixed(2)}`,
+            status,
+            m,
+            n
           };
         } catch {
           return wallet;
@@ -107,12 +171,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     setWallets(updated);
     setTotalFiatBalance(`$${totalFiat.toFixed(2)}`);
-  }, [wallets]);
+  }, [wallets, authFor]);
 
   useEffect(() => {
     if (wallets.length > 0) {
-      refreshBalances();
+      void refreshBalances();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -125,7 +190,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         showBalance,
         setShowBalance,
         totalFiatBalance,
-        getWalletCredentials
+        getWalletCredentials,
+        credentialsFor,
+        authFor,
+        pendingMnemonic,
+        setPendingMnemonic
       }}
     >
       {children}
@@ -162,5 +231,24 @@ export function walletFromBwc(
     fiatBalance: '$0.00',
     status,
     secret
+  };
+}
+
+export function walletFromResponse(
+  response: WalletResponse,
+  copayerId: string,
+  copayerName: string
+): LocalWallet {
+  return {
+    id: response.id,
+    name: response.name,
+    coin: response.coin,
+    m: response.m,
+    n: response.n,
+    copayerId,
+    copayerName,
+    balance: 0,
+    fiatBalance: '$0.00',
+    status: response.status
   };
 }

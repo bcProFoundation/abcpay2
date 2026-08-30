@@ -1,11 +1,19 @@
 import { randomBytes } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import type { CreateTxProposalRequest } from '@bcpros/abcpay-models';
-import { chainFromCoin } from '@bcpros/abcpay-wallet-core';
-import { broadcastTx } from '@bcpros/abcpay-wallet-core';
+import type { CreateTxProposalRequest, ProposalInput, SupportedCoin } from '@bcpros/abcpay-models';
+import {
+  broadcastTx,
+  chainFromCoin,
+  defaultFeePerKb,
+  deriveWalletAddress,
+  relativePath,
+  selectUtxos,
+  validateAddress
+} from '@bcpros/abcpay-wallet-core';
 import { db } from '../db';
-import { txProposals, wallets } from '../db/schema';
+import { addresses, copayers, txProposals, wallets } from '../db/schema';
 import { config } from '../config';
+import { walletService } from './wallet.service';
 
 function generateId(): string {
   return randomBytes(16).toString('hex');
@@ -15,13 +23,93 @@ export class TxProposalService {
   async createProposal(walletId: string, copayerId: string, req: CreateTxProposalRequest) {
     const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
     if (!wallet) throw new Error('Wallet not found');
+    if (wallet.status !== 'complete') throw new Error('Wallet is not complete');
 
     const proposal = req.proposals[0];
     if (!proposal) throw new Error('No proposal provided');
 
-    const amount = proposal.outputs.reduce((sum, o) => sum + o.amount, 0);
-    const proposalId = generateId();
+    for (const output of proposal.outputs) {
+      if (!validateAddress(wallet.coin as SupportedCoin, output.toAddress)) {
+        throw new Error(`Invalid output address: ${output.toAddress}`);
+      }
+    }
 
+    const amount = proposal.outputs.reduce((sum, o) => sum + o.amount, 0);
+    const feePerKb = proposal.feePerKb ?? defaultFeePerKb(wallet.coin as SupportedCoin);
+    const walletCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
+    let inputs = proposal.inputs as ProposalInput[] | undefined;
+    let changeAddress = proposal.changeAddress;
+    let fee = 0;
+
+    if (!inputs || inputs.length === 0) {
+      const utxos = await walletService.getUtxos(walletId);
+      const selected = selectUtxos({
+        coin: wallet.coin as SupportedCoin,
+        utxos,
+        amount,
+        feePerKb,
+        m: wallet.m,
+        n: wallet.n,
+        outputCount: proposal.outputs.length + 1
+      });
+      fee = selected.fee;
+      const addrRows = await db.select().from(addresses).where(eq(addresses.walletId, walletId));
+      inputs = selected.inputs.map(utxo => {
+        const row = addrRows.find(a => a.address === utxo.address);
+        const derived = deriveWalletAddress({
+          coin: wallet.coin as SupportedCoin,
+          network: wallet.network as 'livenet' | 'testnet',
+          xPubKeys: walletCopayers.map(c => c.xPubKey),
+          m: wallet.m,
+          n: wallet.n,
+          path: row?.path ?? utxo.path ?? relativePath(false, 0)
+        });
+        return {
+          txid: utxo.txid,
+          vout: utxo.vout,
+          satoshis: utxo.satoshis,
+          address: derived.address,
+          path: derived.path,
+          publicKeys: derived.publicKeys,
+          redeemScript: derived.redeemScript,
+          scriptPubKey: derived.scriptPubKey
+        };
+      });
+      if (selected.change > 0) {
+        const change = await walletService.createAddress(walletId, true);
+        changeAddress = { address: change.address, path: change.path };
+      }
+    } else {
+      const addrRows = await db.select().from(addresses).where(eq(addresses.walletId, walletId));
+      inputs = inputs.map(input => {
+        const row = addrRows.find(a => a.address === input.address);
+        const derived = deriveWalletAddress({
+          coin: wallet.coin as SupportedCoin,
+          network: wallet.network as 'livenet' | 'testnet',
+          xPubKeys: walletCopayers.map(c => c.xPubKey),
+          m: wallet.m,
+          n: wallet.n,
+          path: row?.path ?? input.path
+        });
+        return {
+          ...input,
+          path: derived.path,
+          publicKeys: derived.publicKeys,
+          redeemScript: derived.redeemScript,
+          scriptPubKey: derived.scriptPubKey
+        };
+      });
+      const totalIn = inputs.reduce((sum, i) => sum + i.satoshis, 0);
+      const outputSum = proposal.outputs.reduce((sum, o) => sum + o.amount, 0);
+      fee = totalIn - outputSum;
+      if (changeAddress) {
+        // payment outputs only; remaining after fee is change — client already accounted for fee
+        fee = Math.max(0, fee);
+      }
+      if (fee < 0) throw new Error('Outputs exceed inputs');
+    }
+
+    const proposalId = generateId();
     const [created] = await db
       .insert(txProposals)
       .values({
@@ -33,9 +121,11 @@ export class TxProposalService {
         network: wallet.network,
         outputs: proposal.outputs,
         amount,
-        fee: 0,
-        feePerKb: proposal.feePerKb ?? 1000,
+        fee,
+        feePerKb,
         message: proposal.message,
+        changeAddress,
+        inputs,
         status: 'pending',
         signatures: {},
         actions: []
@@ -54,24 +144,27 @@ export class TxProposalService {
   async getProposal(proposalId: string) {
     const [proposal] = await db.select().from(txProposals).where(eq(txProposals.proposalId, proposalId)).limit(1);
     if (!proposal) return null;
-
     const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, proposal.walletId)).limit(1);
     return this.toResponse(proposal, wallet?.m ?? 1);
   }
 
-  async signProposal(proposalId: string, copayerId: string, signatures: string) {
+  async signProposal(proposalId: string, copayerId: string, signatures: string[]) {
     const [proposal] = await db.select().from(txProposals).where(eq(txProposals.proposalId, proposalId)).limit(1);
     if (!proposal) throw new Error('Proposal not found');
+    if (proposal.status === 'rejected' || proposal.status === 'broadcasted') {
+      throw new Error('Proposal can no longer be signed');
+    }
 
-    const sigs = (proposal.signatures as Record<string, string>) ?? {};
+    const [copayer] = await db.select().from(copayers).where(eq(copayers.copayerId, copayerId)).limit(1);
+    const sigs = { ...((proposal.signatures as Record<string, string[]>) ?? {}) };
     sigs[copayerId] = signatures;
 
     const actions = [
-      ...((proposal.actions as Array<Record<string, unknown>>) ?? []),
+      ...((proposal.actions as Array<Record<string, unknown>>) ?? []).filter(a => a.copayerId !== copayerId),
       {
         type: 'accept',
         copayerId,
-        copayerName: copayerId,
+        copayerName: copayer?.name ?? copayerId,
         createdOn: Date.now()
       }
     ];
@@ -93,12 +186,13 @@ export class TxProposalService {
     const [proposal] = await db.select().from(txProposals).where(eq(txProposals.proposalId, proposalId)).limit(1);
     if (!proposal) throw new Error('Proposal not found');
 
+    const [copayer] = await db.select().from(copayers).where(eq(copayers.copayerId, copayerId)).limit(1);
     const actions = [
       ...((proposal.actions as Array<Record<string, unknown>>) ?? []),
       {
         type: 'reject',
         copayerId,
-        copayerName: copayerId,
+        copayerName: copayer?.name ?? copayerId,
         comment,
         createdOn: Date.now()
       }
@@ -117,8 +211,11 @@ export class TxProposalService {
   async broadcastProposal(proposalId: string, raw: string) {
     const [proposal] = await db.select().from(txProposals).where(eq(txProposals.proposalId, proposalId)).limit(1);
     if (!proposal) throw new Error('Proposal not found');
+    if (proposal.status !== 'accepted' && proposal.status !== 'pending') {
+      throw new Error('Proposal is not ready to broadcast');
+    }
 
-    const chain = chainFromCoin(proposal.coin as 'xec' | 'doge');
+    const chain = chainFromCoin(proposal.coin as SupportedCoin);
     const txid = await broadcastTx(chain, raw, {
       xecUrls: config.chronik.xecUrls,
       dogeUrls: config.chronik.dogeUrls
@@ -134,7 +231,7 @@ export class TxProposalService {
     return this.toResponse(updated, wallet?.m ?? 1);
   }
 
-  async broadcastRaw(coin: 'xec' | 'doge', raw: string) {
+  async broadcastRaw(coin: SupportedCoin, raw: string) {
     const chain = chainFromCoin(coin);
     const txid = await broadcastTx(chain, raw, {
       xecUrls: config.chronik.xecUrls,
@@ -144,7 +241,7 @@ export class TxProposalService {
   }
 
   private toResponse(proposal: typeof txProposals.$inferSelect, requiredM: number) {
-    const sigs = (proposal.signatures as Record<string, string>) ?? {};
+    const sigs = (proposal.signatures as Record<string, string[]>) ?? {};
     return {
       id: proposal.proposalId,
       walletId: proposal.walletId,
@@ -158,6 +255,7 @@ export class TxProposalService {
       feePerKb: proposal.feePerKb,
       message: proposal.message ?? undefined,
       changeAddress: proposal.changeAddress ?? undefined,
+      inputs: proposal.inputs ?? [],
       requiredSignatures: requiredM,
       requiredRejections: 1,
       status: proposal.status,

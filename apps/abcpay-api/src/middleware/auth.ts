@@ -19,6 +19,7 @@ function isPublicPath(method: string, path: string): boolean {
   if (method === 'POST' && path.match(/^\/v[12]\/wallets\/[^/]+\/copayers\/?$/)) return true;
   if (method === 'GET' && path.startsWith('/v3/fiatrates/')) return true;
   if (method === 'GET' && path.match(/^\/v1\/wallets\/[^/]+\/info\/?$/)) return true;
+  if (method === 'GET' && path.match(/^\/v1\/wallets\/[^/]+\/join-info\/?$/)) return true;
   return false;
 }
 

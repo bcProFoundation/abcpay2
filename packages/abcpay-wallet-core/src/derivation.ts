@@ -1,4 +1,4 @@
-import type { AddressType, Network, SupportedCoin } from '@bcpros/abcpay-models';
+import type { SupportedCoin } from '@bcpros/abcpay-models';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 
 export interface DerivationPathOptions {
@@ -29,31 +29,6 @@ export function getRootPath(opts: {
   return `m/${purpose}'/${coinType}'/${account}'`;
 }
 
-export interface AddressRequest {
-  coin: SupportedCoin;
-  network: Network;
-  addressType: AddressType;
-  publicKeys: string[];
-  path: string;
-}
-
-// Address derivation is delegated to the client (BWC/crypto-wallet-core).
-// Server stores public keys and paths; clients derive addresses locally.
-// This helper validates address format expectations per coin.
-export function validateAddress(coin: SupportedCoin, address: string): boolean {
-  if (!address || address.length < 20) return false;
-
-  if (coin === 'xec') {
-    return address.startsWith('ecash:') || address.startsWith('bitcoincash:');
-  }
-
-  if (coin === 'doge') {
-    return address.startsWith('D') || address.startsWith('n') || address.startsWith('m');
-  }
-
-  return false;
-}
-
 export function formatAmount(coin: SupportedCoin, satoshis: number): string {
   const config = COIN_CONFIGS[coin];
   const amount = satoshis / config.unitToSatoshi;
@@ -62,4 +37,8 @@ export function formatAmount(coin: SupportedCoin, satoshis: number): string {
 
 export function toSatoshis(coin: SupportedCoin, amount: number): number {
   return Math.round(amount * COIN_CONFIGS[coin].unitToSatoshi);
+}
+
+export function fromSatoshis(coin: SupportedCoin, satoshis: number): number {
+  return satoshis / COIN_CONFIGS[coin].unitToSatoshi;
 }

@@ -1,13 +1,14 @@
 {
   "name": "@bcpros/abcpay-web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "type-check": "tsc -b --noEmit"
+    "type-check": "tsc -b --noEmit",
+    "test": "echo 'no tests'"
   },
   "dependencies": {
     "@bcpros/abcpay-models": "workspace:*",
@@ -15,6 +16,7 @@
     "@bcpros/bitcore-mnemonic": "9.0.9",
     "@bcpros/crypto-wallet-core": "9.0.9",
     "@hookform/resolvers": "^4.1.3",
+    "html5-qrcode": "^2.3.8",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -25,6 +27,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.9",
+    "@types/node": "^22.13.1",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react-swc": "^4.1.0",

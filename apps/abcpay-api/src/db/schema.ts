@@ -1,4 +1,4 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { bigint, boolean, integer, jsonb, pgTable, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 
 export const wallets = pgTable('wallets', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -56,11 +56,12 @@ export const txProposals = pgTable('tx_proposals', {
   chain: varchar('chain', { length: 10 }).notNull(),
   network: varchar('network', { length: 20 }).notNull(),
   outputs: jsonb('outputs').notNull(),
-  amount: integer('amount').notNull(),
-  fee: integer('fee').notNull().default(0),
+  amount: bigint('amount', { mode: 'number' }).notNull(),
+  fee: bigint('fee', { mode: 'number' }).notNull().default(0),
   feePerKb: integer('fee_per_kb').notNull(),
   message: text('message'),
   changeAddress: jsonb('change_address'),
+  inputs: jsonb('inputs').notNull().default([]),
   status: varchar('status', { length: 20 }).notNull().default('pending'),
   raw: text('raw'),
   txid: varchar('txid', { length: 128 }),
