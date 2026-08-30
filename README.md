@@ -45,10 +45,11 @@ Modern rebuild of AbcPay wallet + BWS backend, supporting **eCash (XEC)** and **
 
 ### Prerequisites
 
-- Node.js 20+
-- pnpm 9+
-- Bun 1.1+ (for API runtime)
-- Docker (for Postgres)
+- **Node.js 24+** (Active LTS — see `.nvmrc`)
+- **pnpm 9+**
+- **Bun 1.4.0** (pinned — API runtime)
+- **PostgreSQL 18** (Docker image in `docker-compose.yml`, or PGDG packages for native/cloud install)
+- Docker (optional — for Postgres via Compose)
 
 ### Setup
 
@@ -75,6 +76,18 @@ pnpm dev
 ### Environment
 
 Copy `.env.example` to `.env` and adjust Chronik URLs if needed.
+
+### Runtime versions (pinned / target)
+
+| Component | Version | Notes |
+|-----------|---------|--------|
+| Node.js | **24.x** (Active LTS) | `.nvmrc`, `engines.node` |
+| Bun | **1.4.0** | API runtime; `engines.bun` |
+| PostgreSQL | **18** | `postgres:18-alpine` in Compose; PGDG 18 for cloud/native |
+| React | **19.x** | Web UI |
+| pnpm | **9.10.0** | `packageManager` field |
+
+**PostgreSQL 18 vs 17:** We standardize on **18** for the longest support window (~2030) with minimal app changes — Drizzle migrations are unchanged across PG major versions. If you have an existing local cluster at `~/.abcpay-pgdata` from Postgres 16, remove that directory and re-run `bash scripts/setup-postgres.sh` (or `docker compose down -v` for Compose volumes).
 
 ## API Endpoints (BWS-compatible)
 

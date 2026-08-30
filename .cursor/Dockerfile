@@ -1,19 +1,20 @@
-FROM node:22-bookworm-slim
+FROM node:24-bookworm-slim
+
+ARG BUN_VERSION=1.4.0
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
       git \
-      postgresql \
       postgresql-client \
       sudo \
     && rm -rf /var/lib/apt/lists/* \
     && corepack enable \
     && corepack prepare pnpm@9.10.0 --activate
 
-# Bun (API runtime)
-RUN curl -fsSL https://bun.sh/install | bash \
+# Bun (API runtime) — pinned for reproducible Cloud Agent builds
+RUN curl -fsSL https://bun.sh/install | bash -s "bun-v${BUN_VERSION}" \
     && ln -sf /root/.bun/bin/bun /usr/local/bin/bun
 
 RUN useradd -m -s /bin/bash ubuntu \

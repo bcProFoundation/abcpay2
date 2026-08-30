@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Idempotent local PostgreSQL setup for AbcPay v2 development.
-# Starts a per-user Postgres cluster listening on port 5433 with role/db "abcpay",
+# Starts a per-user Postgres 18 cluster listening on port 5433 with role/db "abcpay",
 # matching DATABASE_URL in .env.example (postgresql://abcpay:abcpay@localhost:5433/abcpay).
 set -euo pipefail
 
-PG_BIN="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
+PG_BIN="$(ls -d /usr/lib/postgresql/18/bin /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)"
 PGDATA="${PGDATA:-$HOME/.abcpay-pgdata}"
 PG_PORT="${PG_PORT:-5433}"
 PG_USER="abcpay"
