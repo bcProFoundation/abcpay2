@@ -17,6 +17,7 @@ export const wallets = pgTable('wallets', {
   nativeCashAddr: boolean('native_cash_addr').default(true),
   usePurpose48: boolean('use_purpose48').default(false),
   addressIndex: integer('address_index').notNull().default(0),
+  changeAddressIndex: integer('change_address_index').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });

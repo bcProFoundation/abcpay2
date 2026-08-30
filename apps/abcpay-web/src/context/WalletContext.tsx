@@ -1,6 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { SupportedCoin, WalletResponse } from '@bcpros/abcpay-models';
+import type { SupportedCoin } from '@bcpros/abcpay-models';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
+import { getCredentials } from '../lib/credentials-store';
+import { getWalletBalance as getBalanceFromStored } from '../lib/bwc';
+import { api } from '../lib/api';
 
 export interface LocalWallet {
   id: string;
@@ -13,6 +16,7 @@ export interface LocalWallet {
   balance: number;
   fiatBalance: string;
   status: string;
+  secret?: string;
 }
 
 interface WalletContextValue {
@@ -23,6 +27,7 @@ interface WalletContextValue {
   showBalance: boolean;
   setShowBalance: (show: boolean) => void;
   totalFiatBalance: string;
+  getWalletCredentials: (walletId: string) => string | null;
 }
 
 const WalletContext = createContext<WalletContextValue | null>(null);
@@ -62,23 +67,36 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setWallets(prev => prev.filter(w => w.id !== id));
   }, []);
 
+  const getWalletCredentials = useCallback((walletId: string) => {
+    return getCredentials(walletId);
+  }, []);
+
   const refreshBalances = useCallback(async () => {
-    const { api } = await import('../lib/api');
     let totalFiat = 0;
 
     const updated = await Promise.all(
       wallets.map(async wallet => {
         try {
-          const balance = await api.getBalance(wallet.id);
+          const creds = getCredentials(wallet.id);
+          let balance = 0;
+
+          if (creds) {
+            try {
+              balance = await getBalanceFromStored(creds);
+            } catch {
+              balance = wallet.balance;
+            }
+          }
+
           const fiat = await api.getFiatRate(wallet.coin);
           const config = COIN_CONFIGS[wallet.coin];
-          const amount = balance.totalAmount / config.unitToSatoshi;
+          const amount = balance / config.unitToSatoshi;
           const fiatAmount = amount * fiat.rate;
           totalFiat += fiatAmount;
 
           return {
             ...wallet,
-            balance: balance.totalAmount,
+            balance,
             fiatBalance: `$${fiatAmount.toFixed(2)}`
           };
         } catch {
@@ -106,7 +124,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         refreshBalances,
         showBalance,
         setShowBalance,
-        totalFiatBalance
+        totalFiatBalance,
+        getWalletCredentials
       }}
     >
       {children}
@@ -120,21 +139,28 @@ export function useWallets() {
   return ctx;
 }
 
-export function walletFromResponse(
-  response: WalletResponse,
+export function walletFromBwc(
+  walletId: string,
+  name: string,
+  coin: SupportedCoin,
+  m: number,
+  n: number,
   copayerId: string,
-  copayerName: string
+  copayerName: string,
+  status: string,
+  secret?: string
 ): LocalWallet {
   return {
-    id: response.id,
-    name: response.name,
-    coin: response.coin,
-    m: response.m,
-    n: response.n,
+    id: walletId,
+    name,
+    coin,
+    m,
+    n,
     copayerId,
     copayerName,
     balance: 0,
     fiatBalance: '$0.00',
-    status: response.status
+    status,
+    secret
   };
 }

@@ -1,0 +1,27 @@
+{
+  "name": "AbcPay v2",
+  "user": "ubuntu",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "install": "bash scripts/cloud-install.sh",
+  "start": "bash scripts/cloud-start.sh",
+  "ports": [
+    { "name": "web", "port": 5173 },
+    { "name": "bws-api", "port": 3232 },
+    { "name": "postgres", "port": 5433 }
+  ],
+  "terminals": [
+    {
+      "name": "abcpay-api",
+      "command": "cd apps/abcpay-api && bun run src/index.ts",
+      "description": "BWS API on http://localhost:3232/bws/api"
+    },
+    {
+      "name": "abcpay-web",
+      "command": "cd apps/abcpay-web && pnpm dev",
+      "description": "React web UI on http://localhost:5173"
+    }
+  ]
+}

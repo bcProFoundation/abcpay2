@@ -2,13 +2,15 @@ import { randomBytes } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import type { CreateWalletRequest, JoinWalletRequest, SupportedCoin } from '@bcpros/abcpay-models';
 import { isSupportedCoin } from '@bcpros/abcpay-models';
-import { chainFromCoin, getBalanceForAddress, getUtxosForAddress } from '@bcpros/abcpay-wallet-core';
+import { chainFromCoin, getBalanceForAddress, getUtxosForAddress, getTxHistoryForAddress } from '@bcpros/abcpay-wallet-core';
 import { db } from '../db';
 import { addresses, copayerLookup, copayers, wallets } from '../db/schema';
 import { config } from '../config';
+import { formatWalletId, xPubToCopayerId } from '../lib/bws-utils';
 
-function generateId(): string {
-  return randomBytes(16).toString('hex');
+function generateWalletId(): string {
+  const hex = randomBytes(16).toString('hex');
+  return formatWalletId(hex);
 }
 
 export class WalletService {
@@ -21,7 +23,7 @@ export class WalletService {
       throw new Error('Invalid m-of-n configuration');
     }
 
-    const walletId = generateId();
+    const walletId = generateWalletId();
     const chain = req.chain ?? chainFromCoin(req.coin);
 
     const [wallet] = await db
@@ -44,26 +46,30 @@ export class WalletService {
       })
       .returning();
 
-    return this.toWalletResponse(wallet, []);
+    // BWC expects { walletId } from POST /v2/wallets/
+    return { walletId: wallet.walletId, wallet: this.toWalletResponse(wallet, []) };
   }
 
-  async joinWallet(req: JoinWalletRequest) {
-    const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, req.walletId)).limit(1);
+  async joinWallet(walletId: string, req: JoinWalletRequest) {
+    const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
 
     if (!wallet) throw new Error('Wallet not found');
     if (wallet.coin !== req.coin) throw new Error('Coin mismatch');
 
-    const existingCopayers = await db.select().from(copayers).where(eq(copayers.walletId, req.walletId));
+    const existingCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
 
     if (existingCopayers.length >= wallet.n) {
       throw new Error('Wallet is full');
     }
 
-    const copayerId = generateId();
+    const copayerId = xPubToCopayerId(wallet.coin, req.xPubKey);
+
+    const [existing] = await db.select().from(copayers).where(eq(copayers.copayerId, copayerId)).limit(1);
+    if (existing) throw new Error('Copayer already joined');
 
     await db.insert(copayers).values({
       copayerId,
-      walletId: req.walletId,
+      walletId,
       name: req.name,
       xPubKey: req.xPubKey,
       requestPubKey: req.requestPubKey,
@@ -71,9 +77,9 @@ export class WalletService {
       customData: req.customData
     });
 
-    await db.insert(copayerLookup).values({ copayerId, walletId: req.walletId });
+    await db.insert(copayerLookup).values({ copayerId, walletId });
 
-    const updatedCopayers = await db.select().from(copayers).where(eq(copayers.walletId, req.walletId));
+    const updatedCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
 
     const publicKeyRing = updatedCopayers.map(c => ({
       xPubKey: c.xPubKey,
@@ -85,11 +91,12 @@ export class WalletService {
     await db
       .update(wallets)
       .set({ publicKeyRing, status, updatedAt: new Date() })
-      .where(eq(wallets.walletId, req.walletId));
+      .where(eq(wallets.walletId, walletId));
 
-    const [updated] = await db.select().from(wallets).where(eq(wallets.walletId, req.walletId)).limit(1);
+    const [updated] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
 
-    return this.toWalletResponse(updated, updatedCopayers);
+    // BWC expects { wallet: {...} }
+    return { wallet: this.toWalletResponse(updated, updatedCopayers) };
   }
 
   async getWallet(walletId: string) {
@@ -98,6 +105,20 @@ export class WalletService {
 
     const walletCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
     return this.toWalletResponse(wallet, walletCopayers);
+  }
+
+  async getWalletStatus(walletId: string) {
+    const wallet = await this.getWallet(walletId);
+    if (!wallet) return null;
+
+    return {
+      wallet,
+      serverMessage: { title: '', body: '' },
+      serverMessages: [],
+      pendingTxps: [],
+      preferences: {},
+      walletId
+    };
   }
 
   async registerAddress(
@@ -191,6 +212,37 @@ export class WalletService {
     }
 
     return allUtxos;
+  }
+
+  async getTxHistory(walletId: string) {
+    const walletAddresses = await this.getWalletAddresses(walletId);
+    if (walletAddresses.length === 0) return [];
+
+    const chain = chainFromCoin(walletAddresses[0].coin as SupportedCoin);
+    const allTxs = [];
+
+    for (const addr of walletAddresses) {
+      const history = await getTxHistoryForAddress(chain, addr.address, {
+        xecUrls: config.chronik.xecUrls,
+        dogeUrls: config.chronik.dogeUrls
+      });
+
+      for (const tx of history) {
+        allTxs.push({
+          txid: tx.txid,
+          action: 'moved',
+          amount: tx.amount,
+          fees: tx.fees,
+          time: tx.time,
+          confirmations: tx.confirmations,
+          blockheight: tx.blockheight,
+          address: addr.address,
+          createdOn: tx.time
+        });
+      }
+    }
+
+    return allTxs.sort((a, b) => b.time - a.time);
   }
 
   private toWalletResponse(wallet: typeof wallets.$inferSelect, walletCopayers: (typeof copayers.$inferSelect)[]) {

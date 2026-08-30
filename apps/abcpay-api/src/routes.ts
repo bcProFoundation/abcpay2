@@ -4,102 +4,115 @@ import { createWalletRequestSchema, joinWalletRequestSchema, createTxProposalReq
 import { getFeeEstimate, chainFromCoin } from '@bcpros/abcpay-wallet-core';
 import { walletService } from './services/wallet.service';
 import { txProposalService } from './services/tx-proposal.service';
+import { addressService } from './services/address.service';
+import { fiatService } from './services/fiat.service';
+import { authMiddleware } from './middleware/auth';
 import { config } from './config';
 
 export function createApp() {
   const app = new Hono().basePath(config.basePath);
 
   app.use('*', cors());
+  app.use('*', authMiddleware);
 
-  app.get('/health', c => c.json({ status: 'ok', version: '0.1.0' }));
+  app.get('/health', c => c.json({ status: 'ok', version: '0.2.0' }));
 
   // Wallet creation (BWS-compatible)
-  app.post('/v1/wallets/', async c => {
+  const handleCreateWallet = async (c: { req: { json: () => Promise<unknown> }; json: (body: unknown, status?: number) => Response }) => {
     try {
       const body = createWalletRequestSchema.parse(await c.req.json());
-      const wallet = await walletService.createWallet(body);
-      return c.json(wallet, 201);
+      const result = await walletService.createWallet(body);
+      return c.json({ walletId: result.walletId }, 201);
     } catch (err) {
       return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
     }
-  });
+  };
 
-  app.post('/v2/wallets/', async c => {
-    try {
-      const body = createWalletRequestSchema.parse(await c.req.json());
-      const wallet = await walletService.createWallet(body);
-      return c.json(wallet, 201);
-    } catch (err) {
-      return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
-    }
-  });
+  app.post('/v1/wallets/', handleCreateWallet);
+  app.post('/v2/wallets/', handleCreateWallet);
 
-  // Join wallet
-  app.post('/v1/wallets/:id/copayers/', async c => {
+  // Join wallet (BWC uses /v2/wallets/:id/copayers)
+  const handleJoinWallet = async (c: { req: { param: (k: string) => string; json: () => Promise<unknown> }; json: (body: unknown, status?: number) => Response }) => {
     try {
       const walletId = c.req.param('id');
-      const body = joinWalletRequestSchema.parse({ ...(await c.req.json()), walletId });
-      const wallet = await walletService.joinWallet(body);
-      return c.json(wallet);
+      const raw = await c.req.json();
+      const body = joinWalletRequestSchema.parse({ ...(raw as object), walletId });
+      const result = await walletService.joinWallet(walletId, body);
+      return c.json(result);
     } catch (err) {
       return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
     }
+  };
+
+  app.post('/v1/wallets/:id/copayers/', handleJoinWallet);
+  app.post('/v2/wallets/:id/copayers', handleJoinWallet);
+  app.post('/v2/wallets/:id/copayers/', handleJoinWallet);
+
+  app.get('/v1/wallets/:id/info', async c => {
+    const wallet = await walletService.getWallet(c.req.param('id'));
+    if (!wallet) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+    return c.json({ id: wallet.id, m: wallet.m, n: wallet.n, coin: wallet.coin, status: wallet.status });
   });
 
-  // Get wallet
-  app.get('/v1/wallets/', async c => {
+  // Get wallet status (BWC expects { wallet, pendingTxps, ... })
+  const handleGetWallet = async (c: { req: { header: (k: string) => string | undefined }; json: (body: unknown, status?: number) => Response }) => {
     const walletId = c.req.header('x-wallet-id');
     if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
-    const wallet = await walletService.getWallet(walletId);
-    if (!wallet) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
-    return c.json(wallet);
-  });
+    const status = await walletService.getWalletStatus(walletId);
+    if (!status) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+    return c.json(status);
+  };
 
-  app.get('/v2/wallets/', async c => {
-    const walletId = c.req.header('x-wallet-id');
-    if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
-    const wallet = await walletService.getWallet(walletId);
-    if (!wallet) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
-    return c.json(wallet);
-  });
+  app.get('/v1/wallets/', handleGetWallet);
+  app.get('/v2/wallets/', handleGetWallet);
+  app.get('/v3/wallets/', handleGetWallet);
 
-  app.get('/v3/wallets/', async c => {
-    const walletId = c.req.header('x-wallet-id');
-    if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
-    const wallet = await walletService.getWallet(walletId);
-    if (!wallet) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
-    return c.json(wallet);
-  });
-
-  // Register address
+  // Create address (BWC uses /v4/addresses/)
   app.post('/v3/addresses/', async c => {
     try {
       const walletId = c.req.header('x-wallet-id');
       if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
 
-      const body = await c.req.json();
-      const addr = await walletService.registerAddress(
-        walletId,
-        body.address,
-        body.path,
-        body.publicKeys ?? [],
-        body.isChange ?? false
-      );
-
-      return c.json({
-        version: '1.0.0',
-        createdOn: addr.createdAt.getTime(),
-        address: addr.address,
-        path: addr.path,
-        publicKeys: addr.publicKeys,
-        coin: addr.coin,
-        network: addr.network,
-        type: addr.type,
-        isChange: addr.isChange
-      });
+      const body = await c.req.json().catch(() => ({}));
+      const addr = await addressService.createAddress(walletId, body.isChange ?? false);
+      return c.json(addr, 201);
     } catch (err) {
       return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
     }
+  });
+
+  app.post('/v4/addresses/', async c => {
+    try {
+      const walletId = c.req.header('x-wallet-id');
+      if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+
+      const body = await c.req.json().catch(() => ({}));
+      const addr = await addressService.createAddress(walletId, body.isChange ?? false);
+      return c.json(addr, 201);
+    } catch (err) {
+      return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
+    }
+  });
+
+  // List addresses
+  app.get('/v1/addresses/', async c => {
+    const walletId = c.req.header('x-wallet-id');
+    if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+
+    const url = new URL(c.req.url);
+    const limit = url.searchParams.get('limit');
+    const addrs = await addressService.getMainAddresses(walletId, limit ? parseInt(limit) : undefined);
+    return c.json(addrs);
+  });
+
+  app.get('/v4/addresses/', async c => {
+    const walletId = c.req.header('x-wallet-id');
+    if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+
+    const url = new URL(c.req.url);
+    const limit = url.searchParams.get('limit');
+    const addrs = await addressService.getMainAddresses(walletId, limit ? parseInt(limit) : undefined);
+    return c.json(addrs);
   });
 
   // Balance
@@ -118,16 +131,19 @@ export function createApp() {
     return c.json(utxos);
   });
 
-  // Tx history (placeholder - enriched from Chronik per address)
+  // Tx history
   app.get('/v1/txhistory/', async c => {
-    return c.json([]);
+    const walletId = c.req.header('x-wallet-id');
+    if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+    const history = await walletService.getTxHistory(walletId);
+    return c.json(history);
   });
 
   // Tx proposals
   app.post('/v3/txproposals/', async c => {
     try {
       const walletId = c.req.header('x-wallet-id');
-      const copayerId = c.req.header('x-copayer-id');
+      const copayerId = c.req.header('x-copayer-id') ?? c.req.header('x-identity');
       if (!walletId || !copayerId) {
         return c.json({ code: 'BAD_REQUEST', message: 'Missing wallet or copayer id' }, 400);
       }
@@ -155,7 +171,7 @@ export function createApp() {
 
   app.post('/v1/txproposals/:id/signatures/', async c => {
     try {
-      const copayerId = c.req.header('x-copayer-id');
+      const copayerId = c.req.header('x-copayer-id') ?? c.req.header('x-identity');
       if (!copayerId) return c.json({ code: 'BAD_REQUEST', message: 'Missing copayer id' }, 400);
 
       const body = await c.req.json();
@@ -168,7 +184,7 @@ export function createApp() {
 
   app.post('/v1/txproposals/:id/rejections/', async c => {
     try {
-      const copayerId = c.req.header('x-copayer-id');
+      const copayerId = c.req.header('x-copayer-id') ?? c.req.header('x-identity');
       if (!copayerId) return c.json({ code: 'BAD_REQUEST', message: 'Missing copayer id' }, 400);
 
       const body = await c.req.json();
@@ -201,7 +217,7 @@ export function createApp() {
   });
 
   // Fee levels
-  app.get('/v1/feelevels/', async c => {
+  const handleFeeLevels = async (c: { req: { query: (k: string) => string | undefined }; json: (body: unknown) => Response }) => {
     const coin = (c.req.query('coin') ?? 'xec') as 'xec' | 'doge';
     const chain = chainFromCoin(coin);
     const feePerKb = await getFeeEstimate(chain);
@@ -213,19 +229,17 @@ export function createApp() {
       { level: 'economy', feePerKb: feePerKb * 0.75, nbBlocks: 6 },
       { level: 'superEconomy', feePerKb: feePerKb * 0.5, nbBlocks: 12 }
     ]);
-  });
+  };
 
-  // Fiat rates (placeholder - integrate CoinGecko later)
+  app.get('/v1/feelevels/', handleFeeLevels);
+  app.get('/v2/feelevels/', handleFeeLevels);
+
+  // Fiat rates via CoinGecko
   app.get('/v3/fiatrates/:code/', async c => {
     const code = c.req.param('code');
-    const rates: Record<string, number> = {
-      xec: 0.00004,
-      doge: 0.35
-    };
-    return c.json({
-      rate: rates[code] ?? 0,
-      fetchedOn: Date.now()
-    });
+    const coin = (c.req.query('coin') ?? code) as 'xec' | 'doge';
+    const rate = await fiatService.getRate(coin, 'usd');
+    return c.json(rate);
   });
 
   return app;
