@@ -19,11 +19,24 @@ function generateId(): string {
   return randomBytes(16).toString('hex');
 }
 
+export const COPAYER_NOT_IN_WALLET = 'Copayer is not a member of this wallet';
+
 export class TxProposalService {
+  private async assertCopayerInWallet(copayerId: string, walletId: string) {
+    const members = await db
+      .select({ copayerId: copayers.copayerId })
+      .from(copayers)
+      .where(eq(copayers.walletId, walletId));
+    if (!members.some(m => m.copayerId === copayerId)) {
+      throw new Error(COPAYER_NOT_IN_WALLET);
+    }
+  }
+
   async createProposal(walletId: string, copayerId: string, req: CreateTxProposalRequest) {
     const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
     if (!wallet) throw new Error('Wallet not found');
     if (wallet.status !== 'complete') throw new Error('Wallet is not complete');
+    await this.assertCopayerInWallet(copayerId, walletId);
 
     const proposal = req.proposals[0];
     if (!proposal) throw new Error('No proposal provided');
@@ -151,6 +164,7 @@ export class TxProposalService {
   async signProposal(proposalId: string, copayerId: string, signatures: string[]) {
     const [proposal] = await db.select().from(txProposals).where(eq(txProposals.proposalId, proposalId)).limit(1);
     if (!proposal) throw new Error('Proposal not found');
+    await this.assertCopayerInWallet(copayerId, proposal.walletId);
     if (proposal.status === 'rejected' || proposal.status === 'broadcasted') {
       throw new Error('Proposal can no longer be signed');
     }
@@ -185,6 +199,7 @@ export class TxProposalService {
   async rejectProposal(proposalId: string, copayerId: string, comment?: string) {
     const [proposal] = await db.select().from(txProposals).where(eq(txProposals.proposalId, proposalId)).limit(1);
     if (!proposal) throw new Error('Proposal not found');
+    await this.assertCopayerInWallet(copayerId, proposal.walletId);
 
     const [copayer] = await db.select().from(copayers).where(eq(copayers.copayerId, copayerId)).limit(1);
     const actions = [
@@ -208,9 +223,10 @@ export class TxProposalService {
     return this.toResponse(updated, wallet?.m ?? 1);
   }
 
-  async broadcastProposal(proposalId: string, raw: string) {
+  async broadcastProposal(proposalId: string, copayerId: string, raw: string) {
     const [proposal] = await db.select().from(txProposals).where(eq(txProposals.proposalId, proposalId)).limit(1);
     if (!proposal) throw new Error('Proposal not found');
+    await this.assertCopayerInWallet(copayerId, proposal.walletId);
     if (proposal.status !== 'accepted' && proposal.status !== 'pending') {
       throw new Error('Proposal is not ready to broadcast');
     }

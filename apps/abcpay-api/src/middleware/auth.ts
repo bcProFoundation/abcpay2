@@ -39,6 +39,11 @@ export async function authMiddleware(c: Context, next: Next) {
     return c.json({ code: 'NOT_AUTHORIZED', message: 'Unknown copayer' }, 401);
   }
 
+  const claimedCopayerId = c.req.header('x-copayer-id');
+  if (claimedCopayerId && claimedCopayerId !== identity) {
+    return c.json({ code: 'FORBIDDEN', message: 'Copayer id does not match request identity' }, 403);
+  }
+
   let body = '{}';
   if (method === 'POST' || method === 'PUT') {
     try {
@@ -51,6 +56,11 @@ export async function authMiddleware(c: Context, next: Next) {
 
   if (!verifyRequest(copayer.requestPubKey, signature, method, path, body)) {
     return c.json({ code: 'NOT_AUTHORIZED', message: 'Invalid signature' }, 401);
+  }
+
+  const claimedWalletId = c.req.header('x-wallet-id');
+  if (claimedWalletId && claimedWalletId !== copayer.walletId) {
+    return c.json({ code: 'FORBIDDEN', message: 'Wallet id does not match request identity' }, 403);
   }
 
   c.set('copayerId', identity);
