@@ -175,7 +175,16 @@ export class WalletService {
       .from(addresses)
       .where(and(eq(addresses.walletId, walletId), eq(addresses.isChange, isChange)));
 
-    const index = existing.length;
+    const storedCounter = isChange ? (wallet.changeAddressIndex ?? 0) : (wallet.addressIndex ?? 0);
+    const usedIndexes = new Set<number>();
+    for (const row of existing) {
+      const parsed = Number(row.path.split('/').pop());
+      if (Number.isInteger(parsed) && parsed >= 0) usedIndexes.add(parsed);
+    }
+
+    let index = Math.max(storedCounter, existing.length);
+    while (usedIndexes.has(index)) index++;
+
     const path = relativePath(isChange, index);
     const derived = deriveWalletAddress({
       coin: wallet.coin as SupportedCoin,
@@ -186,7 +195,7 @@ export class WalletService {
       path
     });
 
-    return this.registerAddress(
+    const addr = await this.registerAddress(
       walletId,
       derived.address,
       derived.path,
@@ -196,6 +205,17 @@ export class WalletService {
       derived.scriptPubKey,
       derived.type
     );
+
+    const nextCounter = Math.max(index + 1, storedCounter);
+    await db
+      .update(wallets)
+      .set({
+        ...(isChange ? { changeAddressIndex: nextCounter } : { addressIndex: nextCounter }),
+        updatedAt: new Date()
+      })
+      .where(eq(wallets.walletId, walletId));
+
+    return addr;
   }
 
   async getMainAddress(walletId: string) {

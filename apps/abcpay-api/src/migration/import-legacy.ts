@@ -15,6 +15,7 @@ import {
 
 interface ImportOptions {
   apply: boolean;
+  yes: boolean;
   reportPath: string;
   addressAuditCount: number;
   walletId?: string;
@@ -43,18 +44,35 @@ interface ImportReport {
   errors: Array<{ walletId?: string; message: string }>;
 }
 
+function takeValue(argv: string[], i: number, flag: string): string {
+  const value = argv[i];
+  if (!value || value.startsWith('--')) throw new Error(`${flag} requires a value`);
+  return value;
+}
+
 function parseArgs(argv: string[]): ImportOptions {
   const opts: ImportOptions = {
     apply: false,
+    yes: false,
     reportPath: 'import-report.json',
     addressAuditCount: 5
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--apply') opts.apply = true;
-    else if (arg === '--report') opts.reportPath = argv[++i];
-    else if (arg === '--address-audit') opts.addressAuditCount = Number(argv[++i] ?? 5);
-    else if (arg === '--wallet') opts.walletId = argv[++i];
+    else if (arg === '--yes') opts.yes = true;
+    else if (arg === '--report') opts.reportPath = takeValue(argv, ++i, '--report');
+    else if (arg === '--address-audit') {
+      const count = Number(takeValue(argv, ++i, '--address-audit'));
+      if (!Number.isInteger(count) || count < 0) {
+        throw new Error('--address-audit requires a non-negative integer');
+      }
+      opts.addressAuditCount = count;
+    } else if (arg === '--wallet') opts.walletId = takeValue(argv, ++i, '--wallet');
+    else throw new Error(`Unknown argument: ${arg}`);
+  }
+  if (opts.apply && !opts.yes) {
+    throw new Error('Refusing to write without --yes. Re-run with --apply --yes against the intended database.');
   }
   return opts;
 }
@@ -91,6 +109,7 @@ async function main() {
 
   const mongo = new MongoClient(mongoUrl);
   const sql = postgres(pgUrl, { max: 4 });
+  console.log(`[${report.mode}] mongo ${report.source.mongo} -> postgres ${report.source.postgres}`);
 
   try {
     await mongo.connect();

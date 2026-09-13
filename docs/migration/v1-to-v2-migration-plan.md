@@ -152,16 +152,16 @@ This harness is written **before** the bug fixes, because it defines correctness
 LEGACY_MONGO_URL=mongodb://... DATABASE_URL=postgresql://... \
   pnpm --filter @bcpros/abcpay-api import:legacy
 
-# apply: also imports wallets, copayers and copayer lookups
+# apply: also imports wallets, copayers and copayer lookups (--yes is mandatory)
 LEGACY_MONGO_URL=mongodb://... DATABASE_URL=postgresql://... \
-  pnpm --filter @bcpros/abcpay-api import:legacy -- --apply --report import-report.json --address-audit 5
+  pnpm --filter @bcpros/abcpay-api import:legacy -- --apply --yes --report import-report.json --address-audit 5
 ```
 
 - Source collections: `wallets` (copayers embedded) and `addresses`; database defaults to `bitcore-wallet-service` (`LEGACY_MONGO_DB`).
 - Filter: XEC and DOGE only. Rejected/skipped (recorded in the report): other coins, Raipay path (145), invalid m-of-n, missing keys.
 - Report includes totals, coinType breakdown, copayer ID mismatches, address audit mismatches and errors. Exit code is non-zero on errors or any audit mismatch.
 - Idempotent: wallets already present by `wallet_id` are counted and skipped; re-runs are safe.
-- Address continuity: `addressIndex`/`changeAddressIndex` continue after the highest legacy path index per branch, so migrated wallets never reuse addresses.
+- Address continuity: `addressIndex`/`changeAddressIndex` continue after the highest legacy path index per branch, and server `createAddress` honors and persists those counters, so migrated wallets never reuse addresses.
 
 ### Phase 2 — Staging E2E (gate: migrated wallet usable end-to-end)
 
