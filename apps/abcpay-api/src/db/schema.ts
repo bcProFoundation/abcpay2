@@ -10,6 +10,7 @@ export const wallets = pgTable('wallets', {
   chain: varchar('chain', { length: 10 }).notNull(),
   network: varchar('network', { length: 20 }).notNull().default('livenet'),
   addressType: varchar('address_type', { length: 10 }).notNull().default('P2SH'),
+  coinType: integer('coin_type'),
   status: varchar('status', { length: 20 }).notNull().default('pending'),
   pubKey: text('pub_key').notNull(),
   publicKeyRing: jsonb('public_key_ring').notNull().default([]),

@@ -10,7 +10,7 @@ import type {
   TxProposal,
   WalletResponse
 } from '@bcpros/abcpay-models';
-import { BitcoreLib as Bitcore } from '@bcpros/crypto-wallet-core';
+import { signRequest } from '@bcpros/abcpay-wallet-core';
 
 const BWS_URL = import.meta.env.VITE_BWS_URL ?? '/bws/api';
 
@@ -24,19 +24,6 @@ interface RequestHeaders {
   walletId?: string;
   copayerId?: string;
   requestPrivKey?: string;
-}
-
-function hashMessage(message: string): Buffer {
-  const msg = Buffer.from(message);
-  const buf = Buffer.concat([Buffer.from('\x18Bitcoin Signed Message:\n'), Buffer.from([msg.length]), msg]);
-  return Bitcore.crypto.Hash.sha256sha256(buf);
-}
-
-function signRequest(method: string, path: string, args: unknown, privKey: string): string {
-  const message = `${method.toLowerCase()}|${path}|${JSON.stringify(args)}`;
-  const priv = new Bitcore.PrivateKey(privKey);
-  const hash = hashMessage(message);
-  return Bitcore.crypto.ECDSA.sign(hash, priv, { endian: 'little' }).toString();
 }
 
 function headersFromAuth(auth: AuthContext): RequestHeaders {
@@ -70,7 +57,7 @@ async function bwsFetch<T>(
   }
 
   if (headers.requestPrivKey && headers.copayerId) {
-    reqHeaders['x-signature'] = signRequest(method, path, body, headers.requestPrivKey);
+    reqHeaders['x-signature'] = signRequest(headers.requestPrivKey, method, path, JSON.stringify(body));
   }
 
   const res = await fetch(`${BWS_URL}${path}`, { ...options, headers: reqHeaders });
@@ -96,6 +83,16 @@ export const api = {
     return bwsFetch(`/v2/wallets/${walletId}/copayers`, {
       method: 'POST',
       body: JSON.stringify({ ...data, walletId })
+    });
+  },
+
+  probeJoinWallet(
+    walletId: string,
+    data: Omit<JoinWalletRequest, 'walletId'>
+  ): Promise<{ dryRun: boolean; copayerExists: boolean }> {
+    return bwsFetch(`/v2/wallets/${walletId}/copayers`, {
+      method: 'POST',
+      body: JSON.stringify({ ...data, walletId, dryRun: true })
     });
   },
 

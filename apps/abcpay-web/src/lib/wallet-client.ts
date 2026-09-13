@@ -2,29 +2,12 @@ import Mnemonic from '@bcpros/bitcore-mnemonic';
 import {
   BitcoreLib as Bitcore
 } from '@bcpros/crypto-wallet-core';
-import sjcl from 'sjcl';
 import type { SupportedCoin } from '@bcpros/abcpay-models';
+import { defaultWalletCoinType } from '@bcpros/abcpay-models';
+import { copayerIdFromXpub, signMessage } from '@bcpros/abcpay-wallet-core';
 import { api } from './api';
 
-const REQUEST_KEY_PATH = "m/1'/0'";
-
-function hashMessage(message: string): Buffer {
-  const msg = Buffer.from(message);
-  const buf = Buffer.concat([Buffer.from('\x18Bitcoin Signed Message:\n'), Buffer.from([msg.length]), msg]);
-  return Bitcore.crypto.Hash.sha256sha256(buf);
-}
-
-function signMessage(message: string, privKey: string): string {
-  const priv = new Bitcore.PrivateKey(privKey);
-  const hash = hashMessage(message);
-  return Bitcore.crypto.ECDSA.sign(hash, priv, { endian: 'little' }).toString();
-}
-
-export function xPubToCopayerId(coin: SupportedCoin, xpub: string): string {
-  const str = coin + xpub;
-  const hash = sjcl.hash.sha256.hash(str);
-  return sjcl.codec.hex.fromBits(hash);
-}
+const REQUEST_KEY_PATH = "m/1'/0";
 
 export interface WalletKeys {
   mnemonic: string;
@@ -35,13 +18,14 @@ export interface WalletKeys {
   copayerId: string;
   walletPrivKey: string;
   walletPubKey: string;
+  coinType: number;
 }
 
 export function generateKeys(coin: SupportedCoin, n: number): WalletKeys {
   const mnemonic = new Mnemonic(Mnemonic.Words.ENGLISH);
   const xPrivKey = mnemonic.toHDPrivateKey('', 'livenet');
   const purpose = n > 1 ? 48 : 44;
-  const coinType = coin === 'xec' ? 1899 : 3;
+  const coinType = defaultWalletCoinType(coin, n > 1);
   const path = `m/${purpose}'/${coinType}'/0'`;
   const accountKey = xPrivKey.deriveChild(path);
   const requestKey = xPrivKey.deriveChild(REQUEST_KEY_PATH);
@@ -53,9 +37,10 @@ export function generateKeys(coin: SupportedCoin, n: number): WalletKeys {
     xPubKey: accountKey.hdPublicKey.toString(),
     requestPrivKey: requestKey.privateKey.toString(),
     requestPubKey: requestKey.hdPublicKey.publicKey.toString(),
-    copayerId: xPubToCopayerId(coin, accountKey.hdPublicKey.toString()),
+    copayerId: copayerIdFromXpub(coin, accountKey.hdPublicKey.toString()),
     walletPrivKey,
-    walletPubKey: new Bitcore.PrivateKey(walletPrivKey).toPublicKey().toString()
+    walletPubKey: new Bitcore.PrivateKey(walletPrivKey).toPublicKey().toString(),
+    coinType
   };
 }
 
@@ -100,6 +85,7 @@ export async function createWallet(opts: {
     m: opts.m,
     n: opts.n,
     coin: opts.coin,
+    coinType: keys.coinType,
     network: 'livenet',
     addressType: 'P2SH',
     pubKey: keys.walletPubKey,
