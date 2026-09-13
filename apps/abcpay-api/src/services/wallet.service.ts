@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import type { CreateWalletRequest, JoinWalletRequest, SupportedCoin, TxHistoryItem } from '@bcpros/abcpay-models';
-import { isSupportedCoin } from '@bcpros/abcpay-models';
+import { defaultWalletCoinType, isSupportedCoin } from '@bcpros/abcpay-models';
 import {
   chainFromCoin,
+  copayerIdFromXpub,
   deriveWalletAddress,
   getBalanceForAddress,
   getTxHistoryForAddress,
@@ -13,7 +14,7 @@ import {
 import { db } from '../db';
 import { addresses, copayerLookup, copayers, wallets } from '../db/schema';
 import { config } from '../config';
-import { formatWalletId, xPubToCopayerId } from '../lib/bws-utils';
+import { formatWalletId } from '../lib/bws-utils';
 
 function generateWalletId(): string {
   const hex = randomBytes(16).toString('hex');
@@ -35,6 +36,7 @@ export class WalletService {
 
     const walletId = generateWalletId();
     const chain = req.chain ?? chainFromCoin(req.coin);
+    const coinType = req.coinType ?? defaultWalletCoinType(req.coin, req.n > 1);
 
     const [wallet] = await db
       .insert(wallets)
@@ -47,6 +49,7 @@ export class WalletService {
         chain,
         network: req.network,
         addressType: req.n > 1 ? 'P2SH' : 'P2PKH',
+        coinType,
         status: 'pending',
         pubKey: req.pubKey,
         publicKeyRing: [],
@@ -67,16 +70,22 @@ export class WalletService {
 
     const existingCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
 
+    const copayerId = copayerIdFromXpub(wallet.coin as SupportedCoin, req.xPubKey);
+    const [existing] = await db.select().from(copayers).where(eq(copayers.copayerId, copayerId)).limit(1);
+
+    if (req.dryRun) {
+      return {
+        dryRun: true,
+        copayerExists: existingCopayers.some(c => c.xPubKey === req.xPubKey) || Boolean(existing)
+      };
+    }
+
     if (existingCopayers.length >= wallet.n) {
       throw new Error('Wallet is full');
     }
     if (existingCopayers.some(c => c.xPubKey === req.xPubKey)) {
       throw new Error('Copayer already joined');
     }
-
-    const copayerId = xPubToCopayerId(wallet.coin, req.xPubKey);
-
-    const [existing] = await db.select().from(copayers).where(eq(copayers.copayerId, copayerId)).limit(1);
     if (existing) throw new Error('Copayer already joined');
 
     await db.insert(copayers).values({
@@ -121,6 +130,7 @@ export class WalletService {
       id: wallet.walletId,
       name: wallet.name,
       coin: wallet.coin,
+      coinType: wallet.coinType ?? defaultWalletCoinType(wallet.coin as SupportedCoin, wallet.n > 1),
       m: wallet.m,
       n: wallet.n,
       status: wallet.status,
@@ -348,6 +358,7 @@ export class WalletService {
   }
 
   private toWalletResponse(wallet: typeof wallets.$inferSelect, walletCopayers: (typeof copayers.$inferSelect)[]) {
+    const coin = wallet.coin as SupportedCoin;
     return {
       id: wallet.walletId,
       name: wallet.name,
@@ -359,6 +370,7 @@ export class WalletService {
       chain: wallet.chain,
       network: wallet.network,
       addressType: wallet.addressType,
+      coinType: wallet.coinType ?? defaultWalletCoinType(coin, wallet.n > 1),
       status: wallet.status,
       publicKeyRing: wallet.publicKeyRing as Array<{ xPubKey: string; requestPubKey: string }>,
       copayers: walletCopayers.map(c => ({

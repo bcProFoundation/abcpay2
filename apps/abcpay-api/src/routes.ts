@@ -99,8 +99,14 @@ export function createApp() {
       if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
 
       const body = await c.req.json().catch(() => ({}));
-      const addr = await addressService.createAddress(walletId, body.isChange ?? false);
-      return c.json(addr, 201);
+      const addr = await walletService.createAddress(walletId, Boolean(body.isChange));
+      return c.json(
+        walletService.toAddressResponse(
+          addr,
+          addr as { redeemScript?: string; scriptPubKey?: string }
+        ),
+        201
+      );
     } catch (err) {
       return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
     }

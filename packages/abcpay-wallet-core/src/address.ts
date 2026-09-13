@@ -127,7 +127,8 @@ export function deriveWalletAddress(opts: {
   n: number;
   path: string;
 }): DerivedAddress {
-  const publicKeys = sortPublicKeys(opts.xPubKeys.map(xpub => derivePublicKey(xpub, opts.path)));
+  const publicKeys = opts.xPubKeys.map(xpub => derivePublicKey(xpub, opts.path));
+  const sortedPublicKeys = sortPublicKeys(publicKeys);
   const network = opts.network ?? 'livenet';
 
   if (opts.n === 1) {
@@ -141,7 +142,7 @@ export function deriveWalletAddress(opts: {
     };
   }
 
-  const redeem = multisigRedeemScript(opts.m, publicKeysToBytes(publicKeys));
+  const redeem = multisigRedeemScript(opts.m, publicKeysToBytes(sortedPublicKeys));
   const address = encodeP2shAddress(opts.coin, redeemScriptHash(redeem), network);
   return {
     address,

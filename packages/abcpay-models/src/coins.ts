@@ -43,7 +43,7 @@ export const COIN_CONFIGS: Record<SupportedCoin, CoinConfig> = {
     protocolPrefix: { livenet: 'ecash', testnet: 'ectest' },
     coinColor: '#016cbf',
     backgroundColor: '#0080CA',
-    bip44CoinType: 1899
+    bip44CoinType: 899
   },
   doge: {
     name: 'Dogecoin',
@@ -66,4 +66,14 @@ export function isSupportedCoin(coin: string): coin is SupportedCoin {
 
 export function isSupportedChain(chain: string): chain is SupportedChain {
   return (supportedChains as readonly string[]).includes(chain);
+}
+
+export const XEC_NATIVE_COIN_TYPE = 899;
+export const XEC_TOKEN_AWARE_COIN_TYPE = 1899;
+
+export function defaultWalletCoinType(coin: SupportedCoin, isMultisig: boolean): number {
+  if (coin === 'xec') {
+    return isMultisig ? XEC_NATIVE_COIN_TYPE : XEC_TOKEN_AWARE_COIN_TYPE;
+  }
+  return COIN_CONFIGS[coin].bip44CoinType;
 }

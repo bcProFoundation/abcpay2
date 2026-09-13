@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { XEC_NATIVE_COIN_TYPE, XEC_TOKEN_AWARE_COIN_TYPE } from '@bcpros/abcpay-models';
 import { createCredentials, isValidMnemonic } from '@bcpros/abcpay-wallet-core';
 import { api } from '../lib/api';
 import { saveCredentials } from '../lib/credentials-store';
@@ -29,12 +30,37 @@ export function RestorePage() {
     setError('');
     try {
       const info = await api.getJoinInfo(walletId.trim());
-      const creds = createCredentials({
+      const isMultisig = info.n > 1;
+      let creds = createCredentials({
         coin: info.coin,
         mnemonic: phrase,
-        isMultisig: info.n > 1,
-        usePurpose48: info.n > 1
+        isMultisig,
+        usePurpose48: isMultisig,
+        coinType: info.coinType
       });
+
+      if (!info.coinType && info.coin === 'xec') {
+        const alternative = isMultisig ? XEC_TOKEN_AWARE_COIN_TYPE : XEC_NATIVE_COIN_TYPE;
+        const altCreds = createCredentials({
+          coin: info.coin,
+          mnemonic: phrase,
+          isMultisig,
+          usePurpose48: isMultisig,
+          coinType: alternative
+        });
+        try {
+          const probe = await api.probeJoinWallet(info.id, {
+            name,
+            coin: info.coin,
+            xPubKey: altCreds.xPubKey,
+            requestPubKey: altCreds.requestPubKey
+          });
+          if (probe.copayerExists) creds = altCreds;
+        } catch {
+          // keep the default variant when the probe is unavailable
+        }
+      }
+
       let walletResponse;
       try {
         const joined = await api.joinWallet(info.id, {

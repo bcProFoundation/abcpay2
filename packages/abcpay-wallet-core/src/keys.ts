@@ -3,8 +3,9 @@ import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from '@scure/b
 import { wordlist } from '@scure/bip39/wordlists/english';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import type { SupportedCoin } from '@bcpros/abcpay-models';
+import { defaultWalletCoinType } from '@bcpros/abcpay-models';
 import { bytesToHex, hexToBytes, utf8ToBytes } from './bytes';
-import { hash160Hex } from './hash';
+import { sha256Hex } from './hash';
 import { getRootPath } from './derivation';
 
 export interface WalletCredentials {
@@ -29,7 +30,7 @@ export function isValidMnemonic(mnemonic: string): boolean {
 }
 
 export function copayerIdFromXpub(coin: SupportedCoin, xPubKey: string): string {
-  return hash160Hex(utf8ToBytes(`${coin}${xPubKey}`));
+  return sha256Hex(utf8ToBytes(`${coin}${xPubKey}`));
 }
 
 export function createCredentials(opts: {
@@ -38,6 +39,7 @@ export function createCredentials(opts: {
   account?: number;
   isMultisig?: boolean;
   usePurpose48?: boolean;
+  coinType?: number;
 }): WalletCredentials {
   const mnemonic = (opts.mnemonic ?? generateWalletMnemonic()).trim();
   if (!isValidMnemonic(mnemonic)) {
@@ -46,11 +48,13 @@ export function createCredentials(opts: {
 
   const seed = mnemonicToSeedSync(mnemonic);
   const master = HDKey.fromMasterSeed(seed);
+  const isMultisig = (opts.isMultisig ?? false) || (opts.usePurpose48 ?? false);
   const accountPath = getRootPath({
     coin: opts.coin,
     account: opts.account ?? 0,
     usePurpose48: opts.usePurpose48,
-    isMultisig: opts.isMultisig
+    isMultisig: opts.isMultisig,
+    coinType: opts.coinType ?? defaultWalletCoinType(opts.coin, isMultisig)
   });
 
   const account = master.derive(accountPath);

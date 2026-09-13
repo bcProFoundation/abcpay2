@@ -33,8 +33,10 @@ describe('credentials', () => {
   it('uses purpose 48 for multisig accounts', () => {
     const single = createCredentials({ coin: 'xec', mnemonic: MNEMONIC });
     const multi = createCredentials({ coin: 'xec', mnemonic: MNEMONIC, isMultisig: true });
+    const singleNative = createCredentials({ coin: 'xec', mnemonic: MNEMONIC, coinType: 899 });
     expect(single.accountPath.startsWith("m/44'/1899'")).toBe(true);
-    expect(multi.accountPath.startsWith("m/48'/1899'")).toBe(true);
+    expect(multi.accountPath.startsWith("m/48'/899'")).toBe(true);
+    expect(singleNative.accountPath.startsWith("m/44'/899'")).toBe(true);
     expect(single.xPubKey).not.toBe(multi.xPubKey);
   });
 });
@@ -90,7 +92,7 @@ describe('addresses', () => {
     });
     expect(first.address).toBe(second.address);
     expect(first.address.startsWith('ecash:p')).toBe(true);
-    expect(sortPublicKeys(first.publicKeys)).toEqual(first.publicKeys);
+    expect(sortPublicKeys(first.publicKeys)).toEqual(sortPublicKeys(second.publicKeys));
   });
 });
 

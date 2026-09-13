@@ -1,15 +1,35 @@
 import { secp256k1 } from '@noble/curves/secp256k1';
-import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, hexToBytes, utf8ToBytes } from './bytes';
+import { hash256 } from './hash';
 
-export function requestMessage(method: string, path: string, body = ''): string {
-  return `${method.toUpperCase()}|${path}|${body}`;
+export function requestMessage(method: string, path: string, body = '{}'): string {
+  return `${method.toLowerCase()}|${path}|${body}`;
 }
 
-export function signRequest(requestPrivKeyHex: string, method: string, path: string, body = ''): string {
-  const digest = sha256(utf8ToBytes(requestMessage(method, path, body)));
-  const sig = secp256k1.sign(digest, hexToBytes(requestPrivKeyHex));
-  return bytesToHex(sig.toCompactRawBytes());
+export function signMessage(message: string, privKeyHex: string): string {
+  const sig = secp256k1.sign(hash256(utf8ToBytes(message)), hexToBytes(privKeyHex));
+  return bytesToHex(sig.toDERRawBytes());
+}
+
+export function verifyMessage(message: string, signatureHex: string, pubKeyHex: string): boolean {
+  try {
+    return secp256k1.verify(
+      hexToBytes(signatureHex),
+      hash256(utf8ToBytes(message)),
+      hexToBytes(pubKeyHex)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function signRequest(
+  requestPrivKeyHex: string,
+  method: string,
+  path: string,
+  body = '{}'
+): string {
+  return signMessage(requestMessage(method, path, body), requestPrivKeyHex);
 }
 
 export function verifyRequest(
@@ -17,12 +37,7 @@ export function verifyRequest(
   signatureHex: string,
   method: string,
   path: string,
-  body = ''
+  body = '{}'
 ): boolean {
-  try {
-    const digest = sha256(utf8ToBytes(requestMessage(method, path, body)));
-    return secp256k1.verify(hexToBytes(signatureHex), digest, hexToBytes(requestPubKeyHex));
-  } catch {
-    return false;
-  }
+  return verifyMessage(requestMessage(method, path, body), signatureHex, requestPubKeyHex);
 }

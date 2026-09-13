@@ -30,6 +30,7 @@ export const walletResponseSchema = z.object({
   network: networkSchema,
   addressType: addressTypeSchema,
   status: walletStatusSchema,
+  coinType: z.number().int().optional(),
   publicKeyRing: z.array(publicKeyRingEntrySchema),
   copayers: z.array(copayerSchema),
   singleAddress: z.boolean().optional(),
@@ -47,6 +48,7 @@ export const createWalletRequestSchema = z.object({
   chain: z.enum(supportedChains).optional(),
   network: networkSchema.default('livenet'),
   addressType: addressTypeSchema.default('P2SH'),
+  coinType: z.number().int().optional(),
   pubKey: z.string(),
   singleAddress: z.boolean().optional(),
   nativeCashAddr: z.boolean().optional(),
@@ -62,7 +64,8 @@ export const joinWalletRequestSchema = z.object({
   xPubKey: z.string(),
   requestPubKey: z.string(),
   customData: z.string().optional(),
-  copayerSignature: z.string().optional()
+  copayerSignature: z.string().optional(),
+  dryRun: z.boolean().optional()
 });
 
 export type JoinWalletRequest = z.infer<typeof joinWalletRequestSchema>;
@@ -237,6 +240,7 @@ export const joinInfoSchema = z.object({
   id: z.string(),
   name: z.string(),
   coin: z.enum(supportedCoins),
+  coinType: z.number().int().optional(),
   m: z.number(),
   n: z.number(),
   status: walletStatusSchema,
