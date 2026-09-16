@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  comparableAddress,
+  addressScriptKey,
   legacyCoinTypeFor,
   mapLegacyCopayer,
   mapLegacyWallet,
@@ -38,8 +38,10 @@ describe('legacyCoinTypeFor', () => {
     expect(legacyCoinTypeFor(wallet({ isSlpToken: true, isPath899: true }))).toBe(899);
   });
 
-  it('excludes raipay path (145)', () => {
-    expect(legacyCoinTypeFor(wallet({ isSlpToken: true, isFromRaipay: true }))).toBeNull();
+  it('maps RaiPay XEC wallets to the 145 path', () => {
+    expect(legacyCoinTypeFor(wallet({ isSlpToken: true, isFromRaipay: true }))).toBe(145);
+    const mapped = mapLegacyWallet(wallet({ isSlpToken: true, isFromRaipay: true }));
+    expect(mapped && !('skip' in mapped) && mapped.coinType).toBe(145);
   });
 
   it('maps DOGE to 3', () => {
@@ -75,13 +77,14 @@ describe('mapLegacyWallet', () => {
     expect(singleP2sh && !('skip' in singleP2sh) && singleP2sh.addressType).toBe('P2SH');
   });
 
-  it('skips unsupported coins, raipay and invalid wallets', () => {
+  it('skips unsupported coins and invalid wallets', () => {
     expect(mapLegacyWallet(wallet({ coin: 'btc' }))).toMatchObject({ skip: true });
-    expect(mapLegacyWallet(wallet({ isSlpToken: true, isFromRaipay: true }))).toMatchObject({
-      skip: true
-    });
     expect(mapLegacyWallet(wallet({ id: undefined }))).toMatchObject({ skip: true });
     expect(mapLegacyWallet(wallet({ m: 4, n: 3 }))).toMatchObject({ skip: true });
+  });
+
+  it('skips non-livenet wallets until v2 has testnet Chronik endpoints', () => {
+    expect(mapLegacyWallet(wallet({ network: 'testnet' }))).toMatchObject({ skip: true });
   });
 });
 
@@ -118,6 +121,36 @@ describe('mapLegacyCopayer', () => {
   });
 });
 
+describe('display names', () => {
+  it('falls back for encrypted or oversized names', () => {
+    const encrypted = JSON.stringify({ iv: 'x'.repeat(40), cipher: 'y'.repeat(80) });
+    const mapped = mapLegacyWallet(wallet({ name: encrypted }));
+    expect(mapped && !('skip' in mapped) && mapped.name).toBe('Wallet a1b2c3d4');
+    const copayer = mapLegacyCopayer('w1', 'xec', {
+      xPubKey: XPUB,
+      requestPubKey: REQUEST_PUB,
+      name: encrypted
+    });
+    expect(copayer && !('skip' in copayer) && copayer.name).toBe('Copayer 8fed5e');
+  });
+
+  it('keeps short plaintext names', () => {
+    const mapped = mapLegacyWallet(wallet({ name: 'My wallet' }));
+    expect(mapped && !('skip' in mapped) && mapped.name).toBe('My wallet');
+    const copayer = mapLegacyCopayer('w1', 'xec', {
+      xPubKey: XPUB,
+      requestPubKey: REQUEST_PUB,
+      name: 'Alice'
+    });
+    expect(copayer && !('skip' in copayer) && copayer.name).toBe('Alice');
+  });
+
+  it('falls back for plaintext names longer than the column', () => {
+    const mapped = mapLegacyWallet(wallet({ name: 'n'.repeat(120) }));
+    expect(mapped && !('skip' in mapped) && mapped.name).toBe('Wallet a1b2c3d4');
+  });
+});
+
 describe('nextAddressIndex', () => {
   it('continues after the highest legacy index per branch', () => {
     const addresses = [
@@ -132,15 +165,31 @@ describe('nextAddressIndex', () => {
   });
 });
 
-describe('comparableAddress', () => {
-  it('normalizes XEC cashaddr prefixes but leaves DOGE untouched', () => {
-    expect(comparableAddress('xec', 'ecash:QPLUXJHHLXFJWSYMF9NMCTVSDRWZWYGADSH2PQ0ANG')).toBe(
-      'qpluxjhhlxfjwsymf9nmctvsdrwzwygadsh2pq0ang'
+describe('addressScriptKey', () => {
+  it('treats different cashaddr encodings of the same script as equal', () => {
+    const derived = 'ecash:qr6latruw4nwu94s5u838setyxn2py884v5kquhq6g';
+    const legacy = 'qr6latruw4nwu94s5u838setyxn2py884vdm5hv6ul';
+    expect(addressScriptKey('xec', derived)).toBe(addressScriptKey('xec', legacy));
+    expect(addressScriptKey('xec', derived)).toBe('p2pkh:f5feac7c7566ee16b0a70f13c32b21a6a090e7ab');
+  });
+
+  it('accepts prefixed and prefixless ecash addresses', () => {
+    const withPrefix = 'ecash:qpluxjhhlxfjwsymf9nmctvsdrwzwygadsh2pq0ang';
+    const withoutPrefix = 'qpluxjhhlxfjwsymf9nmctvsdrwzwygadsh2pq0ang';
+    expect(addressScriptKey('xec', withPrefix)).toBe(addressScriptKey('xec', withoutPrefix));
+  });
+
+  it('distinguishes different scripts and doge addresses', () => {
+    const a = 'ecash:qpluxjhhlxfjwsymf9nmctvsdrwzwygadsh2pq0ang';
+    const b = 'ecash:qrwzys2q6xq98vwz0kjn6ulu5m6yljr5fyc909kalg';
+    expect(addressScriptKey('xec', a)).not.toBe(addressScriptKey('xec', b));
+    expect(addressScriptKey('doge', 'DBus3bamQjgJULBJtYXpEzDWQRwF5iwxgC')).not.toBe(
+      addressScriptKey('doge', 'DAcDAtJRztxBHyA6D6h8du1HguyTR43Mas')
     );
-    expect(comparableAddress('xec', 'bitcoincash:qplux')).toBe('qplux');
-    expect(comparableAddress('doge', 'DBus3bamQjgJULBJtYXpEzDWQRwF5iwxgC')).toBe(
-      'DBus3bamQjgJULBJtYXpEzDWQRwF5iwxgC'
-    );
+  });
+
+  it('falls back to the raw string for undecodable addresses', () => {
+    expect(addressScriptKey('xec', 'not-an-address')).toBe('raw:not-an-address');
   });
 });
 

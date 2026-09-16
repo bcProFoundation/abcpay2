@@ -70,6 +70,7 @@ export function isSupportedChain(chain: string): chain is SupportedChain {
 
 export const XEC_NATIVE_COIN_TYPE = 899;
 export const XEC_TOKEN_AWARE_COIN_TYPE = 1899;
+export const XEC_RAIPAY_COIN_TYPE = 145;
 
 export function defaultWalletCoinType(coin: SupportedCoin, isMultisig: boolean): number {
   if (coin === 'xec') {

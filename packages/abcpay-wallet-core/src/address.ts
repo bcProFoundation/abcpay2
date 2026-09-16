@@ -57,10 +57,22 @@ export function encodeHashAddress(
   return b58.encode(payload);
 }
 
+function decodeXecAddress(address: string) {
+  const candidates = address.includes(':') ? [address] : [`ecash:${address}`, address];
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return decodeCashAddress(candidate);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
 export function decodeAddress(coin: SupportedCoin, address: string): DecodedAddress {
   if (coin === 'xec') {
-    const normalized = normalizeXecAddress(address);
-    const decoded = decodeCashAddress(normalized);
+    const decoded = decodeXecAddress(address);
     const type = decoded.type.toLowerCase() as 'p2pkh' | 'p2sh';
     const hash = typeof decoded.hash === 'string' ? hexToBytes(decoded.hash) : new Uint8Array(decoded.hash);
     return {
@@ -91,9 +103,6 @@ export function normalizeXecAddress(address: string): string {
 
 export function validateAddress(coin: SupportedCoin, address: string): boolean {
   try {
-    if (coin === 'xec') {
-      return isValidCashAddress(normalizeXecAddress(address));
-    }
     decodeAddress(coin, address);
     return true;
   } catch {

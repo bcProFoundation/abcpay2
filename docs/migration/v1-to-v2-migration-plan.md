@@ -67,9 +67,10 @@ v2 stores the account variant per wallet as `coin_type` (`wallets.coinType`) and
 |--------|----------|-----------|
 | XEC single-sig | 1899 | Cashtab / ecash-wallet compatibility; SLP-capable addresses |
 | XEC multisig | 899 | Electrum ABC compatibility; SLP-capable P2SH |
+| XEC RaiPay (legacy import) | 145 | Legacy Raipay token wallets restore on their original path |
 | DOGE | 3 | single variant |
 
-Explicit override is supported (`createCredentials({ coinType })`; `POST /v2/wallets/` accepts `coinType`) so v1 wallets restore on their original path — v1 main single-sig XEC wallets are **899**, v1 SLP XEC wallets are **1899**.
+Explicit override is supported (`createCredentials({ coinType })`; `POST /v2/wallets/` accepts `coinType`) so v1 wallets restore on their original path — v1 main single-sig XEC wallets are **899**, v1 SLP XEC wallets are **1899**, v1 RaiPay wallets are **145**.
 
 Legacy flag mapping during import:
 
@@ -78,7 +79,7 @@ Legacy flag mapping during import:
 | `xec` (no SLP flags) | 899 |
 | `xec`, `isSlpToken`, `!isPath899` | 1899 |
 | `xec`, `isSlpToken`, `isPath899` | 899 |
-| `xec`, `isFromRaipay` (SLP) | 145 — out of v2 scope, flag for manual handling |
+| `xec`, `isFromRaipay` (SLP) | 145 |
 | `doge` | 3 |
 
 Request key (`m/1'/0`) and copayer ID derive from the seed/coin and are variant-independent. Addresses derive relative to the account xpub, so both variants share one server-side code path.
@@ -143,7 +144,7 @@ This harness is written **before** the bug fixes, because it defines correctness
 
 - [x] Read-only Mongo reader; Postgres writer; dry-run by default, `--apply`, `--report`, `--address-audit`, `--wallet` options (`apps/abcpay-api/src/migration/import-legacy.ts`)
 - [x] Idempotent upserts (`ON CONFLICT DO NOTHING`); coinType mapping (899/1899/exclusions) and copayer ID mapping unit-tested (`legacy-map.test.ts`)
-- [ ] Dry run on a production snapshot: 100% address re-derivation match on sampled wallets; zero duplicates/collisions
+- [x] Dry run + apply on the production `bws` snapshot (2026-09-16): 5,157 wallets seen, 5,131 imported (XEC 899: 1,892 / XEC 1899: 2,984 / XEC 145: 15 / DOGE: 240), 26 testnet skipped, 0 failed, 5,434 addresses audited with 0 mismatches; ring size equals copayer count for every wallet
 
 ### Import tool usage
 
@@ -158,10 +159,14 @@ LEGACY_MONGO_URL=mongodb://... DATABASE_URL=postgresql://... \
 ```
 
 - Source collections: `wallets` (copayers embedded) and `addresses`; database defaults to `bitcore-wallet-service` (`LEGACY_MONGO_DB`).
-- Filter: XEC and DOGE only. Rejected/skipped (recorded in the report): other coins, Raipay path (145), invalid m-of-n, missing keys.
+- Filter: XEC and DOGE only. Rejected/skipped (recorded in the report): other coins, non-livenet networks, invalid m-of-n, missing keys.
 - Report includes totals, coinType breakdown, copayer ID mismatches, address audit mismatches and errors. Exit code is non-zero on errors or any audit mismatch.
 - Idempotent: wallets already present by `wallet_id` are counted and skipped; re-runs are safe.
 - Address continuity: `addressIndex`/`changeAddressIndex` continue after the highest legacy path index per branch, and server `createAddress` honors and persists those counters, so migrated wallets never reuse addresses.
+- Address audit compares decoded scripts (type + hash160) rather than raw strings, so legacy prefixless cashaddr encodings (different padding bits/checksum) still match; wallet-core now decodes and validates those legacy addresses everywhere.
+- Non-livenet wallets are skipped until v2 has testnet Chronik endpoints.
+- Legacy wallet and copayer names are sjcl-encrypted JSON (key derived from `walletPrivKey`, held only by clients) and cannot be decrypted server-side. Imported wallets get fallback display names (`Wallet <id8>`, `Copayer <id6>`); users can rename after restoring.
+- Production sizing: in-scope BSON is ~10 MB of wallet/copayer docs plus ~2.7 MB of address docs (XEC/DOGE), versus 13 GB for the whole `bws` database — so no dump/restore is needed; the importer streams over a tunnel.
 
 ### Phase 2 — Staging E2E (gate: migrated wallet usable end-to-end)
 
@@ -211,6 +216,7 @@ LEGACY_MONGO_URL=mongodb://... DATABASE_URL=postgresql://... \
 ## Open items
 
 - [x] Confirm legacy conventions against `bcProFoundation/bitcore` and `AbcPay` sources (request key `m/1'/0`, copayer ID `sha256(chain+xpub)`, XEC coin type 899, prefixless cashaddr, request signing)
+- [ ] SLP: 2,984 XEC SLP wallets are imported on the 1899 path; v2 does not surface token balances, so warn users before spending from token-bearing addresses (or add token-UTXO detection) before enabling sends for them
 - [ ] Confirm legacy BWS MongoDB collection/field names against the deployed server version (v8.25.x-era fork)
 - [ ] Decide whether to import legacy `addresses` rows (audit only vs source of truth for index continuity)
 - [ ] Decide transition length for legacy read-only and store-update policy for the old mobile app

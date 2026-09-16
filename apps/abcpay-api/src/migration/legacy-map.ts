@@ -1,6 +1,7 @@
-import { copayerIdFromXpub } from '@bcpros/abcpay-wallet-core';
+import { copayerIdFromXpub, decodeAddress } from '@bcpros/abcpay-wallet-core';
 import {
   XEC_NATIVE_COIN_TYPE,
+  XEC_RAIPAY_COIN_TYPE,
   XEC_TOKEN_AWARE_COIN_TYPE,
   type SupportedCoin
 } from '@bcpros/abcpay-models';
@@ -88,11 +89,18 @@ export interface SkipResult {
   reason: string;
 }
 
+function displayName(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 100 || trimmed.startsWith('{')) return fallback;
+  return trimmed;
+}
+
 export function legacyCoinTypeFor(wallet: LegacyWallet): number | null {
   const coin = (wallet.coin ?? '').toLowerCase();
   if (coin === 'doge') return 3;
   if (coin !== 'xec') return null;
-  if (wallet.isFromRaipay) return null;
+  if (wallet.isFromRaipay) return XEC_RAIPAY_COIN_TYPE;
   if (!wallet.isSlpToken) return XEC_NATIVE_COIN_TYPE;
   return wallet.isPath899 ? XEC_NATIVE_COIN_TYPE : XEC_TOKEN_AWARE_COIN_TYPE;
 }
@@ -103,12 +111,15 @@ export function mapLegacyWallet(wallet: LegacyWallet): MappedWallet | SkipResult
     return { skip: true, reason: `unsupported coin: ${coin || 'unknown'}` };
   }
   if (!wallet.id) return { skip: true, reason: 'missing wallet id' };
+  if ((wallet.network ?? 'livenet') !== 'livenet') {
+    return { skip: true, reason: 'non-livenet wallets are not enabled in v2 (no testnet Chronik endpoints)' };
+  }
   if (!wallet.m || !wallet.n || wallet.m < 1 || wallet.m > wallet.n) {
     return { skip: true, reason: 'invalid m-of-n configuration' };
   }
   const coinType = legacyCoinTypeFor(wallet);
   if (coinType === null) {
-    return { skip: true, reason: 'raipay XEC path (145) is out of v2 scope' };
+    return { skip: true, reason: `unsupported coin type for ${coin}` };
   }
   const status =
     wallet.status === 'complete' || wallet.status === 'deleted' ? wallet.status : 'pending';
@@ -121,7 +132,7 @@ export function mapLegacyWallet(wallet: LegacyWallet): MappedWallet | SkipResult
 
   return {
     walletId: wallet.id,
-    name: wallet.name ?? 'Imported wallet',
+    name: displayName(wallet.name, `Wallet ${wallet.id.slice(0, 8)}`),
     m: wallet.m,
     n: wallet.n,
     coin: coin as SupportedCoin,
@@ -149,6 +160,7 @@ export function mapLegacyCopayer(
   if (!requestPubKey) return { skip: true, reason: 'missing copayer requestPubKey' };
 
   const derivedCopayerId = copayerIdFromXpub(coin, xPubKey);
+  const id = copayer.id ?? copayer.copayerId ?? derivedCopayerId;
   const customData = copayer.customData
     ? typeof copayer.customData === 'string'
       ? copayer.customData
@@ -156,10 +168,10 @@ export function mapLegacyCopayer(
     : undefined;
 
   return {
-    copayerId: copayer.id ?? copayer.copayerId ?? derivedCopayerId,
+    copayerId: id,
     derivedCopayerId,
     walletId,
-    name: copayer.name ?? 'Copayer',
+    name: displayName(copayer.name, `Copayer ${id.slice(0, 6)}`),
     xPubKey,
     requestPubKey,
     signature: copayer.signature,
@@ -177,9 +189,13 @@ export function nextAddressIndex(addresses: LegacyAddress[], isChange: boolean):
   return max + 1;
 }
 
-export function comparableAddress(coin: SupportedCoin, address: string): string {
-  if (coin !== 'xec') return address;
-  return address.toLowerCase().replace(/^ecash:/, '').replace(/^bitcoincash:/, '');
+export function addressScriptKey(coin: SupportedCoin, address: string): string {
+  try {
+    const decoded = decodeAddress(coin, address);
+    return `${decoded.type}:${decoded.hashHex}`;
+  } catch {
+    return `raw:${address}`;
+  }
 }
 
 export function publicKeyRingFromCopayers(copayers: MappedCopayer[]) {

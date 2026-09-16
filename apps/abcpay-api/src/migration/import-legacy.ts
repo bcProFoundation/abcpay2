@@ -3,7 +3,7 @@ import { MongoClient } from 'mongodb';
 import postgres from 'postgres';
 import { deriveWalletAddress } from '@bcpros/abcpay-wallet-core';
 import {
-  comparableAddress,
+  addressScriptKey,
   mapLegacyCopayer,
   mapLegacyWallet,
   nextAddressIndex,
@@ -165,36 +165,38 @@ async function main() {
         const publicKeyRing = publicKeyRingFromCopayers(copayers);
 
         if (opts.apply) {
-          await sql`
-            INSERT INTO wallets (
-              wallet_id, name, m, n, coin, chain, network, address_type, coin_type, status,
-              pub_key, public_key_ring, single_address, native_cash_addr, use_purpose48,
-              address_index, change_address_index
-            ) VALUES (
-              ${mapped.walletId}, ${mapped.name}, ${mapped.m}, ${mapped.n}, ${mapped.coin}, ${mapped.chain},
-              ${mapped.network}, ${mapped.addressType}, ${mapped.coinType}, ${mapped.status}, ${mapped.pubKey},
-              ${sql.json(publicKeyRing)}, ${mapped.singleAddress}, ${mapped.nativeCashAddr},
-              ${mapped.usePurpose48}, ${receiveIndex}, ${changeIndex}
-            )
-            ON CONFLICT (wallet_id) DO NOTHING
-          `;
-
-          for (const copayer of copayers) {
-            await sql`
-              INSERT INTO copayers (
-                copayer_id, wallet_id, name, x_pub_key, request_pub_key, signature, custom_data
+          await sql.begin(async tx => {
+            await tx`
+              INSERT INTO wallets (
+                wallet_id, name, m, n, coin, chain, network, address_type, coin_type, status,
+                pub_key, public_key_ring, single_address, native_cash_addr, use_purpose48,
+                address_index, change_address_index
               ) VALUES (
-                ${copayer.copayerId}, ${copayer.walletId}, ${copayer.name}, ${copayer.xPubKey},
-                ${copayer.requestPubKey}, ${copayer.signature ?? null}, ${copayer.customData ?? null}
+                ${mapped.walletId}, ${mapped.name}, ${mapped.m}, ${mapped.n}, ${mapped.coin}, ${mapped.chain},
+                ${mapped.network}, ${mapped.addressType}, ${mapped.coinType}, ${mapped.status}, ${mapped.pubKey},
+                ${tx.json(publicKeyRing)}, ${mapped.singleAddress}, ${mapped.nativeCashAddr},
+                ${mapped.usePurpose48}, ${receiveIndex}, ${changeIndex}
               )
-              ON CONFLICT (copayer_id) DO NOTHING
+              ON CONFLICT (wallet_id) DO NOTHING
             `;
-            await sql`
-              INSERT INTO copayer_lookup (copayer_id, wallet_id)
-              VALUES (${copayer.copayerId}, ${copayer.walletId})
-              ON CONFLICT (copayer_id) DO NOTHING
-            `;
-          }
+
+            for (const copayer of copayers) {
+              await tx`
+                INSERT INTO copayers (
+                  copayer_id, wallet_id, name, x_pub_key, request_pub_key, signature, custom_data
+                ) VALUES (
+                  ${copayer.copayerId}, ${copayer.walletId}, ${copayer.name}, ${copayer.xPubKey},
+                  ${copayer.requestPubKey}, ${copayer.signature ?? null}, ${copayer.customData ?? null}
+                )
+                ON CONFLICT (copayer_id) DO NOTHING
+              `;
+              await tx`
+                INSERT INTO copayer_lookup (copayer_id, wallet_id)
+                VALUES (${copayer.copayerId}, ${copayer.walletId})
+                ON CONFLICT (copayer_id) DO NOTHING
+              `;
+            }
+          });
           report.totals.imported++;
         }
 
@@ -219,8 +221,8 @@ async function main() {
             });
             report.addressAudit.checked++;
             if (
-              comparableAddress(mapped.coin, derived.address) !==
-              comparableAddress(mapped.coin, legacyAddress.address)
+              addressScriptKey(mapped.coin, derived.address) !==
+              addressScriptKey(mapped.coin, legacyAddress.address)
             ) {
               report.addressAudit.mismatches.push({
                 walletId: mapped.walletId,
