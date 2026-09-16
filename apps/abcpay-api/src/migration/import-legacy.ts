@@ -3,7 +3,7 @@ import { MongoClient } from 'mongodb';
 import postgres from 'postgres';
 import { deriveWalletAddress } from '@bcpros/abcpay-wallet-core';
 import {
-  comparableAddress,
+  addressScriptKey,
   mapLegacyCopayer,
   mapLegacyWallet,
   nextAddressIndex,
@@ -219,8 +219,8 @@ async function main() {
             });
             report.addressAudit.checked++;
             if (
-              comparableAddress(mapped.coin, derived.address) !==
-              comparableAddress(mapped.coin, legacyAddress.address)
+              addressScriptKey(mapped.coin, derived.address) !==
+              addressScriptKey(mapped.coin, legacyAddress.address)
             ) {
               report.addressAudit.mismatches.push({
                 walletId: mapped.walletId,

@@ -1,4 +1,4 @@
-import { copayerIdFromXpub } from '@bcpros/abcpay-wallet-core';
+import { copayerIdFromXpub, decodeAddress } from '@bcpros/abcpay-wallet-core';
 import {
   XEC_NATIVE_COIN_TYPE,
   XEC_TOKEN_AWARE_COIN_TYPE,
@@ -103,6 +103,9 @@ export function mapLegacyWallet(wallet: LegacyWallet): MappedWallet | SkipResult
     return { skip: true, reason: `unsupported coin: ${coin || 'unknown'}` };
   }
   if (!wallet.id) return { skip: true, reason: 'missing wallet id' };
+  if ((wallet.network ?? 'livenet') !== 'livenet') {
+    return { skip: true, reason: 'non-livenet wallets are not enabled in v2 (no testnet Chronik endpoints)' };
+  }
   if (!wallet.m || !wallet.n || wallet.m < 1 || wallet.m > wallet.n) {
     return { skip: true, reason: 'invalid m-of-n configuration' };
   }
@@ -177,9 +180,13 @@ export function nextAddressIndex(addresses: LegacyAddress[], isChange: boolean):
   return max + 1;
 }
 
-export function comparableAddress(coin: SupportedCoin, address: string): string {
-  if (coin !== 'xec') return address;
-  return address.toLowerCase().replace(/^ecash:/, '').replace(/^bitcoincash:/, '');
+export function addressScriptKey(coin: SupportedCoin, address: string): string {
+  try {
+    const decoded = decodeAddress(coin, address);
+    return `${decoded.type}:${decoded.hashHex}`;
+  } catch {
+    return `raw:${address}`;
+  }
 }
 
 export function publicKeyRingFromCopayers(copayers: MappedCopayer[]) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  comparableAddress,
+  addressScriptKey,
   legacyCoinTypeFor,
   mapLegacyCopayer,
   mapLegacyWallet,
@@ -83,6 +83,10 @@ describe('mapLegacyWallet', () => {
     expect(mapLegacyWallet(wallet({ id: undefined }))).toMatchObject({ skip: true });
     expect(mapLegacyWallet(wallet({ m: 4, n: 3 }))).toMatchObject({ skip: true });
   });
+
+  it('skips non-livenet wallets until v2 has testnet Chronik endpoints', () => {
+    expect(mapLegacyWallet(wallet({ network: 'testnet' }))).toMatchObject({ skip: true });
+  });
 });
 
 describe('mapLegacyCopayer', () => {
@@ -132,15 +136,31 @@ describe('nextAddressIndex', () => {
   });
 });
 
-describe('comparableAddress', () => {
-  it('normalizes XEC cashaddr prefixes but leaves DOGE untouched', () => {
-    expect(comparableAddress('xec', 'ecash:QPLUXJHHLXFJWSYMF9NMCTVSDRWZWYGADSH2PQ0ANG')).toBe(
-      'qpluxjhhlxfjwsymf9nmctvsdrwzwygadsh2pq0ang'
+describe('addressScriptKey', () => {
+  it('treats different cashaddr encodings of the same script as equal', () => {
+    const derived = 'ecash:qr6latruw4nwu94s5u838setyxn2py884v5kquhq6g';
+    const legacy = 'qr6latruw4nwu94s5u838setyxn2py884vdm5hv6ul';
+    expect(addressScriptKey('xec', derived)).toBe(addressScriptKey('xec', legacy));
+    expect(addressScriptKey('xec', derived)).toBe('p2pkh:f5feac7c7566ee16b0a70f13c32b21a6a090e7ab');
+  });
+
+  it('accepts prefixed and prefixless ecash addresses', () => {
+    const withPrefix = 'ecash:qpluxjhhlxfjwsymf9nmctvsdrwzwygadsh2pq0ang';
+    const withoutPrefix = 'qpluxjhhlxfjwsymf9nmctvsdrwzwygadsh2pq0ang';
+    expect(addressScriptKey('xec', withPrefix)).toBe(addressScriptKey('xec', withoutPrefix));
+  });
+
+  it('distinguishes different scripts and doge addresses', () => {
+    const a = 'ecash:qpluxjhhlxfjwsymf9nmctvsdrwzwygadsh2pq0ang';
+    const b = 'ecash:qrwzys2q6xq98vwz0kjn6ulu5m6yljr5fyc909kalg';
+    expect(addressScriptKey('xec', a)).not.toBe(addressScriptKey('xec', b));
+    expect(addressScriptKey('doge', 'DBus3bamQjgJULBJtYXpEzDWQRwF5iwxgC')).not.toBe(
+      addressScriptKey('doge', 'DAcDAtJRztxBHyA6D6h8du1HguyTR43Mas')
     );
-    expect(comparableAddress('xec', 'bitcoincash:qplux')).toBe('qplux');
-    expect(comparableAddress('doge', 'DBus3bamQjgJULBJtYXpEzDWQRwF5iwxgC')).toBe(
-      'DBus3bamQjgJULBJtYXpEzDWQRwF5iwxgC'
-    );
+  });
+
+  it('falls back to the raw string for undecodable addresses', () => {
+    expect(addressScriptKey('xec', 'not-an-address')).toBe('raw:not-an-address');
   });
 });
 

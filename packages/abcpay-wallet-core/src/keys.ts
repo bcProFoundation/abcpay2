@@ -83,8 +83,18 @@ export function createCredentials(opts: {
   };
 }
 
+const TESTNET_VERSIONS = { private: 0x04358394, public: 0x043587cf };
+
+function parseExtendedKey(xKey: string): HDKey {
+  try {
+    return HDKey.fromExtendedKey(xKey);
+  } catch {
+    return HDKey.fromExtendedKey(xKey, TESTNET_VERSIONS);
+  }
+}
+
 export function deriveKeyAt(xKey: string, isChange: boolean, index: number): HDKey {
-  const hd = HDKey.fromExtendedKey(xKey);
+  const hd = parseExtendedKey(xKey);
   return hd.deriveChild(isChange ? 1 : 0).deriveChild(index);
 }
 

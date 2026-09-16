@@ -67,6 +67,15 @@ describe('addresses', () => {
     expect(decodeAddress('doge', address).type).toBe('p2pkh');
   });
 
+  it('decodes legacy prefixless cashaddr addresses', () => {
+    const prefixed = 'ecash:qr6latruw4nwu94s5u838setyxn2py884v5kquhq6g';
+    const legacyPrefixless = 'qr6latruw4nwu94s5u838setyxn2py884vdm5hv6ul';
+    expect(validateAddress('xec', legacyPrefixless)).toBe(true);
+    expect(decodeAddress('xec', legacyPrefixless).hashHex).toBe(
+      decodeAddress('xec', prefixed).hashHex
+    );
+  });
+
   it('builds the same P2SH address regardless of copayer xpub order', () => {
     const a = createCredentials({ coin: 'xec', mnemonic: MNEMONIC, isMultisig: true });
     const b = createCredentials({
