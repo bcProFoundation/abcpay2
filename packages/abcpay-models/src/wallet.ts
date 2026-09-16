@@ -84,6 +84,21 @@ export const addressResponseSchema = z.object({
 
 export type AddressResponse = z.infer<typeof addressResponseSchema>;
 
+export const utxoTokenSchema = z.object({
+  tokenId: z.string(),
+  tokenType: z.number().int().optional(),
+  atoms: z.string(),
+  isMintBaton: z.boolean()
+});
+
+export const tokenBalanceSchema = utxoTokenSchema.extend({
+  ticker: z.string().optional(),
+  name: z.string().optional(),
+  decimals: z.number().int().optional()
+});
+
+export type TokenBalance = z.infer<typeof tokenBalanceSchema>;
+
 export const balanceResponseSchema = z.object({
   totalAmount: z.number(),
   lockedAmount: z.number(),
@@ -91,6 +106,8 @@ export const balanceResponseSchema = z.object({
   totalConfirmedAmount: z.number(),
   lockedConfirmedAmount: z.number(),
   availableConfirmedAmount: z.number(),
+  tokens: z.array(tokenBalanceSchema).optional(),
+  tokenSatoshis: z.number().optional(),
   byAddress: z.record(z.string(), z.number()).optional()
 });
 
@@ -105,7 +122,8 @@ export const utxoSchema = z.object({
   scriptPubKey: z.string().optional(),
   confirmations: z.number().optional(),
   locked: z.boolean().optional(),
-  path: z.string().optional()
+  path: z.string().optional(),
+  token: utxoTokenSchema.optional()
 });
 
 export type Utxo = z.infer<typeof utxoSchema>;

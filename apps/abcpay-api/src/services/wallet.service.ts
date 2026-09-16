@@ -6,10 +6,12 @@ import {
   chainFromCoin,
   copayerIdFromXpub,
   deriveWalletAddress,
-  getBalanceForAddress,
+  getBalancesForAddress,
+  getTokenMetadata,
   getTxHistoryForAddress,
   getUtxosForAddress,
-  relativePath
+  relativePath,
+  type TokenBalance
 } from '@bcpros/abcpay-wallet-core';
 import { db } from '../db';
 import { addresses, copayerLookup, copayers, wallets } from '../db/schema';
@@ -278,23 +280,50 @@ export class WalletService {
         totalConfirmedAmount: 0,
         lockedConfirmedAmount: 0,
         availableConfirmedAmount: 0,
+        tokens: [],
+        tokenSatoshis: 0,
         byAddress: {}
       };
     }
 
     const chain = chainFromCoin(walletAddresses[0].coin as SupportedCoin);
     let total = 0;
+    let tokenSatoshis = 0;
     const byAddress: Record<string, number> = {};
+    const tokens = new Map<string, TokenBalance>();
 
     for (const addr of walletAddresses) {
       try {
-        const balance = await getBalanceForAddress(chain, addr.address, chronikCfg());
-        byAddress[addr.address] = balance;
-        total += balance;
+        const balances = await getBalancesForAddress(chain, addr.address, chronikCfg());
+        byAddress[addr.address] = balances.spendableSatoshis;
+        total += balances.spendableSatoshis;
+        tokenSatoshis += balances.tokenSatoshis;
+        for (const token of balances.tokens) {
+          const existing = tokens.get(token.tokenId);
+          if (existing) {
+            existing.atoms = (BigInt(existing.atoms) + BigInt(token.atoms)).toString();
+            existing.isMintBaton = existing.isMintBaton || token.isMintBaton;
+          } else {
+            tokens.set(token.tokenId, { ...token });
+          }
+        }
       } catch {
         byAddress[addr.address] = 0;
       }
     }
+
+    const tokenList = await Promise.all(
+      [...tokens.values()].map(async token => {
+        if (chain !== 'XEC') return token;
+        const metadata = await getTokenMetadata(chain, token.tokenId, chronikCfg());
+        return {
+          ...token,
+          ticker: metadata.ticker,
+          name: metadata.name,
+          decimals: metadata.decimals
+        };
+      })
+    );
 
     return {
       totalAmount: total,
@@ -303,6 +332,8 @@ export class WalletService {
       totalConfirmedAmount: total,
       lockedConfirmedAmount: 0,
       availableConfirmedAmount: total,
+      tokens: tokenList,
+      tokenSatoshis,
       byAddress
     };
   }

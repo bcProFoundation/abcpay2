@@ -8,6 +8,7 @@ export interface SelectableUtxo {
   address: string;
   path?: string;
   confirmations?: number;
+  token?: { tokenId: string; atoms: string; isMintBaton: boolean } | null;
 }
 
 export interface CoinSelectResult {
@@ -25,6 +26,10 @@ export function defaultFeePerKb(coin: SupportedCoin): number {
   return coin === 'xec' ? 2000 : 100_000_000;
 }
 
+export function isSpendableUtxo(utxo: SelectableUtxo): boolean {
+  return !utxo.token;
+}
+
 export function selectUtxos(opts: {
   coin: SupportedCoin;
   utxos: SelectableUtxo[];
@@ -36,7 +41,7 @@ export function selectUtxos(opts: {
 }): CoinSelectResult {
   const feePerKb = opts.feePerKb ?? defaultFeePerKb(opts.coin);
   const dust = dustThreshold(opts.coin);
-  const sorted = [...opts.utxos].sort((a, b) => b.satoshis - a.satoshis);
+  const sorted = opts.utxos.filter(isSpendableUtxo).sort((a, b) => b.satoshis - a.satoshis);
   const selected: SelectableUtxo[] = [];
   let totalInput = 0;
   const m = opts.m ?? 1;
