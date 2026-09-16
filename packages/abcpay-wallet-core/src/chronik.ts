@@ -32,6 +32,13 @@ export function chainFromCoin(coin: SupportedCoin): SupportedChain {
   return coin === 'xec' ? 'XEC' : 'DOGE';
 }
 
+export interface ScriptToken {
+  tokenId: string;
+  tokenType?: number;
+  atoms: string;
+  isMintBaton: boolean;
+}
+
 export interface ScriptUtxo {
   txid: string;
   vout: number;
@@ -39,6 +46,63 @@ export interface ScriptUtxo {
   address: string;
   confirmations: number;
   scriptPubKey?: string;
+  token?: ScriptToken;
+}
+
+export interface TokenBalance {
+  tokenId: string;
+  tokenType?: number;
+  atoms: string;
+  isMintBaton: boolean;
+}
+
+export interface AddressBalances {
+  spendableSatoshis: number;
+  tokenSatoshis: number;
+  tokens: TokenBalance[];
+}
+
+function tokenTypeNumber(tokenType: { number?: number } | number | null | undefined): number | undefined {
+  if (typeof tokenType === 'number') return tokenType;
+  return tokenType?.number;
+}
+
+function mapToken(token:
+  | { tokenId: string; tokenType?: { number?: number } | number | null; atoms: bigint; isMintBaton: boolean }
+  | undefined): ScriptToken | undefined {
+  if (!token) return undefined;
+  return {
+    tokenId: token.tokenId,
+    tokenType: tokenTypeNumber(token.tokenType),
+    atoms: token.atoms.toString(),
+    isMintBaton: Boolean(token.isMintBaton)
+  };
+}
+
+export function summarizeUtxos(utxos: ScriptUtxo[]): AddressBalances {
+  let spendableSatoshis = 0;
+  let tokenSatoshis = 0;
+  const tokens = new Map<string, TokenBalance>();
+  for (const utxo of utxos) {
+    if (utxo.token) {
+      tokenSatoshis += utxo.satoshis;
+      const existing = tokens.get(utxo.token.tokenId);
+      if (existing) {
+        existing.atoms = (BigInt(existing.atoms) + BigInt(utxo.token.atoms)).toString();
+        existing.isMintBaton = existing.isMintBaton || utxo.token.isMintBaton;
+      } else {
+        tokens.set(utxo.token.tokenId, {
+          tokenId: utxo.token.tokenId,
+          tokenType: utxo.token.tokenType,
+          atoms: utxo.token.atoms,
+          isMintBaton: utxo.token.isMintBaton
+        });
+      }
+    } else {
+      spendableSatoshis += utxo.satoshis;
+    }
+  }
+  return { spendableSatoshis, tokenSatoshis, tokens: [...tokens.values()] };
 }
 
 function scriptEndpoint(chain: SupportedChain, address: string, config?: ChronikConfig) {
@@ -62,8 +126,18 @@ export async function getUtxosForAddress(
     satoshis: Number(utxo.sats),
     address,
     confirmations: utxo.blockHeight > 0 ? 1 : 0,
-    scriptPubKey
+    scriptPubKey,
+    token: mapToken(utxo.token)
   }));
+}
+
+export async function getBalancesForAddress(
+  chain: SupportedChain,
+  address: string,
+  config?: ChronikConfig
+): Promise<AddressBalances> {
+  const utxos = await getUtxosForAddress(chain, address, config);
+  return summarizeUtxos(utxos);
 }
 
 export async function getBalanceForAddress(
@@ -71,8 +145,46 @@ export async function getBalanceForAddress(
   address: string,
   config?: ChronikConfig
 ): Promise<number> {
-  const utxos = await getUtxosForAddress(chain, address, config);
-  return utxos.reduce((sum, u) => sum + u.satoshis, 0);
+  const balances = await getBalancesForAddress(chain, address, config);
+  return balances.spendableSatoshis;
+}
+
+export interface TokenMetadata {
+  tokenId: string;
+  tokenType?: number;
+  ticker?: string;
+  name?: string;
+  decimals?: number;
+}
+
+const TOKEN_CACHE_TTL_MS = 10 * 60 * 1000;
+const tokenCache = new Map<string, { value: TokenMetadata; expires: number }>();
+
+export async function getTokenMetadata(
+  chain: SupportedChain,
+  tokenId: string,
+  config?: ChronikConfig
+): Promise<TokenMetadata> {
+  const cacheKey = `${chain}:${tokenId}`;
+  const cached = tokenCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.value;
+
+  const fallback: TokenMetadata = { tokenId };
+  try {
+    const info = await getChronikClient(chain, config).token(tokenId);
+    const value: TokenMetadata = {
+      tokenId: info.tokenId,
+      tokenType: tokenTypeNumber(info.tokenType),
+      ticker: info.genesisInfo?.tokenTicker || undefined,
+      name: info.genesisInfo?.tokenName || undefined,
+      decimals: Number.isFinite(info.genesisInfo?.decimals) ? info.genesisInfo.decimals : undefined
+    };
+    tokenCache.set(cacheKey, { value, expires: Date.now() + TOKEN_CACHE_TTL_MS });
+    return value;
+  } catch {
+    tokenCache.set(cacheKey, { value: fallback, expires: Date.now() + TOKEN_CACHE_TTL_MS });
+    return fallback;
+  }
 }
 
 export async function broadcastTx(

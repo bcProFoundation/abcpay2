@@ -32,13 +32,14 @@ Modern rebuild of AbcPay wallet + BWS backend, supporting **eCash (XEC)** and **
 - m-of-n multisig shared wallets
 - Transaction proposal coordination (create, sign, reject, broadcast)
 - Chronik-backed UTXO lookup and tx broadcast
+- SLP token awareness: token UTXOs are tagged, excluded from XEC spending and coin selection, and token balances are shown (token transfers not yet supported)
 - Postgres instead of MongoDB
 
 ### Removed (vs legacy AbcPay/Copay)
 
 - BTC, BCH, LTC, XPI, ETH, ERC-20 tokens
 - Buy crypto, exchange, debit card, gift cards, WalletConnect
-- SLP/eToken support (can be re-added via Chronik token index)
+- SLP/eToken transfers (token UTXOs are detected and protected from accidental spending; sending tokens is not yet supported)
 - Mobile native builds (web-first; Capacitor can be added later)
 
 ## Quick Start

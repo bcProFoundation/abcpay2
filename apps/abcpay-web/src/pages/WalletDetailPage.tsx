@@ -1,11 +1,24 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
-import type { TxProposal, WalletResponse } from '@bcpros/abcpay-models';
+import type { TokenBalance, TxProposal, WalletResponse } from '@bcpros/abcpay-models';
 import { CoinBadge, MultisigBadge } from '../components/ui';
 import { useWallets } from '../context/WalletContext';
 import { api } from '../lib/api';
 import { signAndMaybeBroadcast } from '../lib/tx';
+
+function formatTokenAtoms(atoms: string, decimals?: number): string {
+  try {
+    const value = BigInt(atoms);
+    if (!decimals) return value.toString();
+    const base = 10n ** BigInt(decimals);
+    const whole = value / base;
+    const fraction = (value % base).toString().padStart(decimals, '0').replace(/0+$/, '');
+    return fraction ? `${whole}.${fraction}` : whole.toString();
+  } catch {
+    return atoms;
+  }
+}
 
 export function WalletDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -13,6 +26,7 @@ export function WalletDetailPage() {
   const wallet = wallets.find(w => w.id === id);
   const [remote, setRemote] = useState<WalletResponse | null>(null);
   const [proposals, setProposals] = useState<TxProposal[]>([]);
+  const [tokens, setTokens] = useState<TokenBalance[]>([]);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
 
@@ -22,9 +36,14 @@ export function WalletDetailPage() {
   async function load() {
     if (!auth) return;
     try {
-      const [w, p] = await Promise.all([api.getWallet(auth), api.getTxProposals(auth)]);
+      const [w, p, balance] = await Promise.all([
+        api.getWallet(auth),
+        api.getTxProposals(auth),
+        api.getBalance(auth)
+      ]);
       setRemote(w);
       setProposals(p.filter(item => item.status === 'pending' || item.status === 'accepted'));
+      setTokens(balance.tokens ?? []);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -93,6 +112,28 @@ export function WalletDetailPage() {
               ))}
             </ul>
           ) : null}
+        </div>
+      )}
+
+      {wallet.coin === 'xec' && tokens.length > 0 && (
+        <div className="mx-4 p-4 bg-[var(--abcpay-surface)] rounded-2xl mb-4">
+          <h3 className="font-medium mb-3">Tokens (SLP)</h3>
+          <ul className="space-y-2 text-sm">
+            {tokens.map(token => (
+              <li key={token.tokenId} className="flex items-center justify-between gap-3">
+                <span>
+                  {token.ticker || token.name || `${token.tokenId.slice(0, 10)}…`}
+                  {token.isMintBaton ? ' · mint baton' : ''}
+                </span>
+                <span className="font-mono">
+                  {formatTokenAtoms(token.atoms, token.decimals)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-[var(--abcpay-muted)] mt-3">
+            Token UTXOs are excluded from spendable balance and coin selection.
+          </p>
         </div>
       )}
 

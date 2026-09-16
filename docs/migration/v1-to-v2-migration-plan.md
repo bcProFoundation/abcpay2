@@ -210,6 +210,7 @@ LEGACY_MONGO_URL=mongodb://... DATABASE_URL=postgresql://... \
 
 ## Open items
 
+- [x] SLP safety: token UTXOs carry `tokenId`/`atoms`/mint-baton info, are excluded from spendable balances and coin selection, and Chronik rejects token-burning broadcasts. Balances expose per-token totals with ticker/name/decimals. Remaining: token send/receive and mint-baton flows.
 - [x] Confirm legacy conventions against `bcProFoundation/bitcore` and `AbcPay` sources (request key `m/1'/0`, copayer ID `sha256(chain+xpub)`, XEC coin type 899, prefixless cashaddr, request signing)
 - [ ] Confirm legacy BWS MongoDB collection/field names against the deployed server version (v8.25.x-era fork)
 - [ ] Decide whether to import legacy `addresses` rows (audit only vs source of truth for index continuity)

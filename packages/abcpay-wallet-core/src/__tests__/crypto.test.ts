@@ -7,12 +7,14 @@ import {
   derivePublicKey,
   deriveWalletAddress,
   encodeP2pkhAddress,
+  isSpendableUtxo,
   isValidMnemonic,
   relativePath,
   selectUtxos,
   signAndAssemble,
   signRequest,
   sortPublicKeys,
+  summarizeUtxos,
   validateAddress,
   verifyRequest
 } from '../index';
@@ -93,6 +95,54 @@ describe('addresses', () => {
     expect(first.address).toBe(second.address);
     expect(first.address.startsWith('ecash:p')).toBe(true);
     expect(sortPublicKeys(first.publicKeys)).toEqual(sortPublicKeys(second.publicKeys));
+  });
+});
+
+describe('SLP token safety', () => {
+  const tokenUtxo = {
+    txid: 'aa'.repeat(32),
+    vout: 0,
+    satoshis: 1_000_000,
+    address: 'dummy',
+    token: { tokenId: 'bb'.repeat(32), atoms: '1000', isMintBaton: false }
+  };
+  const plainUtxo = { txid: 'cc'.repeat(32), vout: 1, satoshis: 20_000, address: 'dummy' };
+
+  it('never selects token-bearing UTXOs', () => {
+    expect(isSpendableUtxo(tokenUtxo)).toBe(false);
+    expect(isSpendableUtxo(plainUtxo)).toBe(true);
+    const result = selectUtxos({ coin: 'xec', amount: 10_000, utxos: [tokenUtxo, plainUtxo] });
+    expect(result.inputs).toEqual([plainUtxo]);
+  });
+
+  it('fails when only token UTXOs are available', () => {
+    expect(() => selectUtxos({ coin: 'xec', amount: 1_000, utxos: [tokenUtxo] })).toThrow(
+      'Insufficient funds'
+    );
+  });
+
+  it('summarizes spendable and token balances separately', () => {
+    const balances = summarizeUtxos([
+      { ...plainUtxo, confirmations: 1, token: undefined },
+      { ...tokenUtxo, confirmations: 1, token: { tokenId: 'bb'.repeat(32), tokenType: 1, atoms: '1000', isMintBaton: false } },
+      {
+        ...tokenUtxo,
+        vout: 1,
+        satoshis: 546,
+        confirmations: 1,
+        token: { tokenId: 'bb'.repeat(32), tokenType: 1, atoms: '500', isMintBaton: true }
+      }
+    ]);
+    expect(balances.spendableSatoshis).toBe(20_000);
+    expect(balances.tokenSatoshis).toBe(1_000_546);
+    expect(balances.tokens).toEqual([
+      {
+        tokenId: 'bb'.repeat(32),
+        tokenType: 1,
+        atoms: '1500',
+        isMintBaton: true
+      }
+    ]);
   });
 });
 
