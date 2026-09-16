@@ -38,8 +38,10 @@ describe('legacyCoinTypeFor', () => {
     expect(legacyCoinTypeFor(wallet({ isSlpToken: true, isPath899: true }))).toBe(899);
   });
 
-  it('excludes raipay path (145)', () => {
-    expect(legacyCoinTypeFor(wallet({ isSlpToken: true, isFromRaipay: true }))).toBeNull();
+  it('maps RaiPay XEC wallets to the 145 path', () => {
+    expect(legacyCoinTypeFor(wallet({ isSlpToken: true, isFromRaipay: true }))).toBe(145);
+    const mapped = mapLegacyWallet(wallet({ isSlpToken: true, isFromRaipay: true }));
+    expect(mapped && !('skip' in mapped) && mapped.coinType).toBe(145);
   });
 
   it('maps DOGE to 3', () => {
@@ -75,11 +77,8 @@ describe('mapLegacyWallet', () => {
     expect(singleP2sh && !('skip' in singleP2sh) && singleP2sh.addressType).toBe('P2SH');
   });
 
-  it('skips unsupported coins, raipay and invalid wallets', () => {
+  it('skips unsupported coins and invalid wallets', () => {
     expect(mapLegacyWallet(wallet({ coin: 'btc' }))).toMatchObject({ skip: true });
-    expect(mapLegacyWallet(wallet({ isSlpToken: true, isFromRaipay: true }))).toMatchObject({
-      skip: true
-    });
     expect(mapLegacyWallet(wallet({ id: undefined }))).toMatchObject({ skip: true });
     expect(mapLegacyWallet(wallet({ m: 4, n: 3 }))).toMatchObject({ skip: true });
   });
@@ -119,6 +118,36 @@ describe('mapLegacyCopayer', () => {
 
   it('skips copayers without keys', () => {
     expect(mapLegacyCopayer('w1', 'xec', { name: 'No keys' })).toMatchObject({ skip: true });
+  });
+});
+
+describe('display names', () => {
+  it('falls back for encrypted or oversized names', () => {
+    const encrypted = JSON.stringify({ iv: 'x'.repeat(40), cipher: 'y'.repeat(80) });
+    const mapped = mapLegacyWallet(wallet({ name: encrypted }));
+    expect(mapped && !('skip' in mapped) && mapped.name).toBe('Wallet a1b2c3d4');
+    const copayer = mapLegacyCopayer('w1', 'xec', {
+      xPubKey: XPUB,
+      requestPubKey: REQUEST_PUB,
+      name: encrypted
+    });
+    expect(copayer && !('skip' in copayer) && copayer.name).toBe('Copayer 8fed5e');
+  });
+
+  it('keeps short plaintext names', () => {
+    const mapped = mapLegacyWallet(wallet({ name: 'My wallet' }));
+    expect(mapped && !('skip' in mapped) && mapped.name).toBe('My wallet');
+    const copayer = mapLegacyCopayer('w1', 'xec', {
+      xPubKey: XPUB,
+      requestPubKey: REQUEST_PUB,
+      name: 'Alice'
+    });
+    expect(copayer && !('skip' in copayer) && copayer.name).toBe('Alice');
+  });
+
+  it('falls back for plaintext names longer than the column', () => {
+    const mapped = mapLegacyWallet(wallet({ name: 'n'.repeat(120) }));
+    expect(mapped && !('skip' in mapped) && mapped.name).toBe('Wallet a1b2c3d4');
   });
 });
 

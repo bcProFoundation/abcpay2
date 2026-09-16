@@ -1,6 +1,7 @@
 import { copayerIdFromXpub, decodeAddress } from '@bcpros/abcpay-wallet-core';
 import {
   XEC_NATIVE_COIN_TYPE,
+  XEC_RAIPAY_COIN_TYPE,
   XEC_TOKEN_AWARE_COIN_TYPE,
   type SupportedCoin
 } from '@bcpros/abcpay-models';
@@ -88,11 +89,18 @@ export interface SkipResult {
   reason: string;
 }
 
+function displayName(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 100 || trimmed.startsWith('{')) return fallback;
+  return trimmed;
+}
+
 export function legacyCoinTypeFor(wallet: LegacyWallet): number | null {
   const coin = (wallet.coin ?? '').toLowerCase();
   if (coin === 'doge') return 3;
   if (coin !== 'xec') return null;
-  if (wallet.isFromRaipay) return null;
+  if (wallet.isFromRaipay) return XEC_RAIPAY_COIN_TYPE;
   if (!wallet.isSlpToken) return XEC_NATIVE_COIN_TYPE;
   return wallet.isPath899 ? XEC_NATIVE_COIN_TYPE : XEC_TOKEN_AWARE_COIN_TYPE;
 }
@@ -111,7 +119,7 @@ export function mapLegacyWallet(wallet: LegacyWallet): MappedWallet | SkipResult
   }
   const coinType = legacyCoinTypeFor(wallet);
   if (coinType === null) {
-    return { skip: true, reason: 'raipay XEC path (145) is out of v2 scope' };
+    return { skip: true, reason: `unsupported coin type for ${coin}` };
   }
   const status =
     wallet.status === 'complete' || wallet.status === 'deleted' ? wallet.status : 'pending';
@@ -124,7 +132,7 @@ export function mapLegacyWallet(wallet: LegacyWallet): MappedWallet | SkipResult
 
   return {
     walletId: wallet.id,
-    name: wallet.name ?? 'Imported wallet',
+    name: displayName(wallet.name, `Wallet ${wallet.id.slice(0, 8)}`),
     m: wallet.m,
     n: wallet.n,
     coin: coin as SupportedCoin,
@@ -152,6 +160,7 @@ export function mapLegacyCopayer(
   if (!requestPubKey) return { skip: true, reason: 'missing copayer requestPubKey' };
 
   const derivedCopayerId = copayerIdFromXpub(coin, xPubKey);
+  const id = copayer.id ?? copayer.copayerId ?? derivedCopayerId;
   const customData = copayer.customData
     ? typeof copayer.customData === 'string'
       ? copayer.customData
@@ -159,10 +168,10 @@ export function mapLegacyCopayer(
     : undefined;
 
   return {
-    copayerId: copayer.id ?? copayer.copayerId ?? derivedCopayerId,
+    copayerId: id,
     derivedCopayerId,
     walletId,
-    name: copayer.name ?? 'Copayer',
+    name: displayName(copayer.name, `Copayer ${id.slice(0, 6)}`),
     xPubKey,
     requestPubKey,
     signature: copayer.signature,
