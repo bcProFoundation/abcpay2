@@ -1,21 +1,11 @@
 #!/usr/bin/env bash
 # Idempotent Cloud Agent install for AbcPay v2.
-# Prepares system deps (Bun 1.4.0, PostgreSQL 18), workspace deps, shared package builds,
+# Prepares system deps (Node 26, PostgreSQL 18), workspace deps, shared package builds,
 # a local Postgres cluster, and the database schema. Safe to run repeatedly.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
-
-BUN_VERSION="${BUN_VERSION:-1.4.0}"
-
-echo "==> Ensuring Bun ${BUN_VERSION} is installed"
-export PATH="$HOME/.bun/bin:$PATH"
-if ! command -v bun >/dev/null 2>&1 || ! bun --version | grep -q "^${BUN_VERSION}"; then
-  curl -fsSL https://bun.sh/install | bash -s "bun-v${BUN_VERSION}"
-fi
-export PATH="$HOME/.bun/bin:$PATH"
-bun --version
 
 echo "==> Ensuring PostgreSQL 18 is installed"
 if ! command -v psql >/dev/null 2>&1 || ! psql --version 2>/dev/null | grep -q ' 18\.'; then
@@ -36,7 +26,7 @@ echo "==> Creating .env from .env.example (if missing)"
 if [ ! -f .env ]; then
   cp .env.example .env
 fi
-# Bun auto-loads apps/abcpay-api/.env from its own working directory.
+# Copy .env for API processes started from apps/abcpay-api (tsx does not auto-load env files).
 cp .env apps/abcpay-api/.env
 
 echo "==> Installing workspace dependencies"

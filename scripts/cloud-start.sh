@@ -6,11 +6,10 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-export PATH="$HOME/.bun/bin:$PATH"
-
 if [ ! -f .env ]; then
   cp .env.example .env
 fi
+# Keep the API copy current for terminals started in apps/abcpay-api.
 cp .env apps/abcpay-api/.env
 
 echo "==> Ensuring PostgreSQL is running"
