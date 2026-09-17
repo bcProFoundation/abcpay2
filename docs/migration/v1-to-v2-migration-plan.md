@@ -224,6 +224,7 @@ LEGACY_MONGO_URL=mongodb://... DATABASE_URL=postgresql://... \
 - [ ] Confirm legacy BWS MongoDB collection/field names against the deployed server version (v8.25.x-era fork)
 - [ ] Decide whether to import legacy `addresses` rows (audit only vs source of truth for index continuity)
 - [ ] Decide transition length for legacy read-only and store-update policy for the old mobile app
+- [ ] Realtime: proposal/copayer events use an in-process SSE broker (single API instance). If the API scales out, bridge it with PG `LISTEN/NOTIFY`; incoming on-chain payments are still detected by polling until a Chronik address subscription or watcher exists
 - [ ] XPI: who owns the future migration design; export tooling requirements
 
 ---
