@@ -1,14 +1,19 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
-import { toSatoshis } from '@bcpros/abcpay-wallet-core';
-import { createAndPublishTx, signAndBroadcastTx } from '../lib/bwc';
+import { dustThreshold, toSatoshis, validateAddress } from '@bcpros/abcpay-wallet-core';
+import { createAndSendPayment } from '../lib/tx';
 import { useWallets } from '../context/WalletContext';
+
+interface PendingSignatures {
+  signed: number;
+  required: number;
+}
 
 export function SendPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { wallets, getWalletCredentials, refreshBalances } = useWallets();
+  const { wallets, authFor, credentialsFor, refreshBalances } = useWallets();
   const wallet = wallets.find(w => w.id === id);
 
   const [toAddress, setToAddress] = useState('');
@@ -17,6 +22,7 @@ export function SendPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [txid, setTxid] = useState('');
+  const [pending, setPending] = useState<PendingSignatures | null>(null);
 
   if (!wallet) {
     return (
@@ -32,24 +38,39 @@ export function SendPage() {
     setLoading(true);
     setError('');
     setTxid('');
+    setPending(null);
 
     try {
-      const creds = getWalletCredentials(wallet.id);
-      if (!creds) throw new Error('Wallet credentials not found');
+      const auth = authFor(wallet.id);
+      const creds = credentialsFor(wallet.id);
+      if (!auth || !creds) throw new Error('Wallet credentials not found on this device');
 
-      const satoshis = toSatoshis(wallet.coin, parseFloat(amount));
-      if (satoshis <= 0) throw new Error('Invalid amount');
-      if (!toAddress.trim()) throw new Error('Recipient address is required');
+      const recipient = toAddress.trim();
+      if (!recipient) throw new Error('Recipient address is required');
+      if (!validateAddress(wallet.coin, recipient)) throw new Error('Invalid recipient address');
 
-      const txp = await createAndPublishTx({
-        credentialsJson: creds,
-        toAddress: toAddress.trim(),
-        amount: satoshis,
-        message: message || undefined
+      const parsedAmount = parseFloat(amount);
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) throw new Error('Invalid amount');
+      const satoshis = toSatoshis(wallet.coin, parsedAmount);
+      const dust = dustThreshold(wallet.coin);
+      if (satoshis < dust) throw new Error(`Amount is below the dust threshold (${dust} sats)`);
+
+      const { proposal, txid: broadcastTxid } = await createAndSendPayment({
+        auth,
+        creds,
+        toAddress: recipient,
+        satoshis,
+        message: message.trim() || undefined
       });
 
-      const broadcastTxid = await signAndBroadcastTx(creds, txp);
-      setTxid(broadcastTxid);
+      if (broadcastTxid) {
+        setTxid(broadcastTxid);
+      } else {
+        setPending({
+          signed: Object.keys(proposal.signatures ?? {}).length,
+          required: proposal.requiredSignatures
+        });
+      }
       await refreshBalances();
     } catch (err) {
       setError((err as Error).message);
@@ -77,6 +98,20 @@ export function SendPage() {
               className="px-6 py-3 bg-[var(--abcpay-accent)] rounded-xl font-medium"
             >
               Done
+            </button>
+          </div>
+        ) : pending ? (
+          <div className="text-center py-8">
+            <p className="text-amber-300 font-medium mb-2">Waiting for co-signers</p>
+            <p className="text-sm text-[var(--abcpay-muted)] mb-6">
+              {pending.signed} of {pending.required} signatures collected. Other copayers can sign from
+              the wallet page.
+            </p>
+            <button
+              onClick={() => navigate(`/wallet/${wallet.id}`)}
+              className="px-6 py-3 bg-[var(--abcpay-accent)] rounded-xl font-medium"
+            >
+              Open wallet
             </button>
           </div>
         ) : (

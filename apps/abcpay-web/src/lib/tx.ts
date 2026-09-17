@@ -41,3 +41,22 @@ export async function signAndMaybeBroadcast(
   const raw = assembleTxHex(unsigned, merged);
   return api.broadcastTxProposal(auth, proposal.id, raw);
 }
+
+export async function createAndSendPayment(opts: {
+  auth: AuthContext;
+  creds: StoredCredentials;
+  toAddress: string;
+  satoshis: number;
+  message?: string;
+}): Promise<{ proposal: TxProposal; txid?: string }> {
+  const wallet = await api.getWallet(opts.auth);
+  const created = await api.createTxProposal(opts.auth, {
+    proposals: [
+      {
+        outputs: [{ toAddress: opts.toAddress, amount: opts.satoshis, message: opts.message }]
+      }
+    ]
+  });
+  const proposal = await signAndMaybeBroadcast(created, opts.creds, opts.auth, wallet.copayers);
+  return { proposal, txid: proposal.txid };
+}
