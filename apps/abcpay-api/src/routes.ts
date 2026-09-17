@@ -1,13 +1,23 @@
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
-import { createWalletRequestSchema, joinWalletRequestSchema, createTxProposalRequestSchema } from '@bcpros/abcpay-models';
+import { streamSSE } from 'hono/streaming';
+import {
+  createWalletRequestSchema,
+  joinWalletRequestSchema,
+  createTxProposalRequestSchema,
+  NOTIFICATION_PATH,
+  type NotificationEvent
+} from '@bcpros/abcpay-models';
 import { getFeeEstimate, chainFromCoin } from '@bcpros/abcpay-wallet-core';
 import { walletService } from './services/wallet.service';
 import { COPAYER_NOT_IN_WALLET, txProposalService } from './services/tx-proposal.service';
 import { addressService } from './services/address.service';
 import { fiatService } from './services/fiat.service';
+import { notificationService } from './services/notification.service';
 import { authMiddleware } from './middleware/auth';
 import { config } from './config';
+
+const SSE_HEARTBEAT_MS = 20000;
 
 export function createApp() {
   const app = new Hono<{ Variables: { copayerId: string; walletId: string } }>();
@@ -171,6 +181,60 @@ export function createApp() {
     const walletId = c.req.header('x-wallet-id');
     if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
     return c.json(await walletService.getHistory(walletId));
+  });
+
+  app.get(NOTIFICATION_PATH, c => {
+    const walletId = c.req.header('x-wallet-id');
+    if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+
+    return streamSSE(c, async stream => {
+      const queue: NotificationEvent[] = [];
+      let wake: (() => void) | undefined;
+      const wakeUp = () => {
+        const resolve = wake;
+        wake = undefined;
+        resolve?.();
+      };
+
+      const unsubscribe = notificationService.subscribe(walletId, event => {
+        queue.push(event);
+        wakeUp();
+      });
+      stream.onAbort(() => {
+        unsubscribe();
+        wakeUp();
+      });
+
+      try {
+        await stream.writeSSE({ event: 'ready', data: JSON.stringify({ walletId, at: Date.now() }) });
+
+        while (!stream.aborted && !stream.closed) {
+          if (queue.length === 0) {
+            await Promise.race([
+              new Promise<void>(resolve => {
+                wake = resolve;
+              }),
+              new Promise<void>(resolve => setTimeout(resolve, SSE_HEARTBEAT_MS))
+            ]);
+            wake = undefined;
+          }
+
+          if (stream.aborted || stream.closed) break;
+
+          if (queue.length === 0) {
+            await stream.write(`:heartbeat ${Date.now()}\n\n`);
+            continue;
+          }
+
+          const event = queue.shift()!;
+          await stream.writeSSE({ event: event.type, data: JSON.stringify(event) });
+        }
+      } catch {
+        // Client disconnected mid-write.
+      } finally {
+        unsubscribe();
+      }
+    });
   });
 
   app.post('/v3/txproposals/', async c => {

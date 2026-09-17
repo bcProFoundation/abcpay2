@@ -77,6 +77,113 @@ function check(label: string, ok: boolean, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`);
 }
 
+interface SseEvent {
+  type: string;
+  [key: string]: unknown;
+}
+
+interface SseClient {
+  events: SseEvent[];
+  waitFor: (predicate: (event: SseEvent) => boolean, timeoutMs?: number) => Promise<SseEvent | null>;
+  close: () => void;
+}
+
+async function openSse(
+  path: string,
+  opts: { creds: WalletCredentials; walletId: string; identity: string }
+): Promise<SseClient> {
+  const controller = new AbortController();
+  const headers: Record<string, string> = {
+    Accept: 'text/event-stream',
+    'x-wallet-id': opts.walletId,
+    'x-identity': opts.identity,
+    'x-copayer-id': opts.identity,
+    'x-signature': signRequest(opts.creds.requestPrivKey, 'GET', path, '{}')
+  };
+
+  const res = await fetch(BASE + path, { headers, signal: controller.signal });
+  if (!res.ok || !res.body) throw new Error(`SSE handshake failed with status ${res.status}`);
+
+  const events: SseEvent[] = [];
+  const waiters: Array<{
+    id: number;
+    predicate: (event: SseEvent) => boolean;
+    resolve: (event: SseEvent | null) => void;
+  }> = [];
+  let nextWaiterId = 0;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  void (async () => {
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let separator: number;
+        while ((separator = buffer.indexOf('\n\n')) >= 0) {
+          const frame = buffer.slice(0, separator);
+          buffer = buffer.slice(separator + 2);
+
+          let eventName = 'message';
+          const dataLines: string[] = [];
+          for (const line of frame.split('\n')) {
+            if (line.startsWith(':')) continue;
+            if (line.startsWith('event:')) eventName = line.slice(6).trim();
+            else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+          }
+          if (dataLines.length === 0) continue;
+
+          let payload: Record<string, unknown>;
+          try {
+            payload = JSON.parse(dataLines.join('\n'));
+          } catch {
+            continue;
+          }
+          const event: SseEvent = { ...payload, type: eventName };
+          events.push(event);
+          for (let i = waiters.length - 1; i >= 0; i--) {
+            if (waiters[i].predicate(event)) {
+              waiters[i].resolve(event);
+              waiters.splice(i, 1);
+            }
+          }
+        }
+      }
+    } catch {
+      // aborted by close()
+    }
+  })();
+
+  return {
+    events,
+    waitFor: (predicate, timeoutMs = 8000) =>
+      new Promise<SseEvent | null>(resolve => {
+        const existing = events.find(predicate);
+        if (existing) return resolve(existing);
+
+        const id = ++nextWaiterId;
+        const timer = setTimeout(() => {
+          const index = waiters.findIndex(waiter => waiter.id === id);
+          if (index >= 0) waiters.splice(index, 1);
+          resolve(null);
+        }, timeoutMs);
+
+        waiters.push({
+          id,
+          predicate,
+          resolve: event => {
+            clearTimeout(timer);
+            resolve(event);
+          }
+        });
+      }),
+    close: () => controller.abort()
+  };
+}
+
 function fixtureWallet(id: string) {
   const wallet = fixture.wallets.find((w: any) => w.id === id);
   if (!wallet) throw new Error(`fixture wallet ${id} not found`);
@@ -219,6 +326,10 @@ async function main() {
     const source = wallet.addresses.find((a: any) => a.path === 'm/0/0');
     const dest = fixtureWallet('xec-899-1of1').addresses.find((a: any) => a.path === 'm/0/1');
 
+    const sse = await openSse('/v1/notifications/', { creds: cb, walletId: seed.id, identity: cb.copayerId });
+    const ready = await sse.waitFor(event => event.type === 'ready');
+    check('sse: stream ready for wallet', ready !== null, ready ? 'ready event received' : 'no ready event');
+
     const created = await call('POST', '/v3/txproposals/', {
       body: {
         proposals: [
@@ -248,6 +359,12 @@ async function main() {
       `status=${created.status} txp=${created.json?.id}`
     );
     const txp = created.json;
+    const createdEvent = await sse.waitFor(event => event.type === 'proposal.created' && event.proposalId === txp.id);
+    check(
+      'sse: proposal.created delivered to the other copayer',
+      createdEvent !== null,
+      createdEvent ? `proposalId=${createdEvent.proposalId}` : 'event not delivered'
+    );
     const unsigned: UnsignedTx = unsignedTxFromProposal({
       coin: 'xec',
       inputs: txp.inputs,
@@ -264,6 +381,14 @@ async function main() {
       identity: ca.copayerId
     });
     check('multisig: copayer A signature accepted', sigA.status === 200 && sigA.json.status === 'pending');
+    const signedEvent = await sse.waitFor(
+      event => event.type === 'proposal.signed' && event.copayerId === ca.copayerId
+    );
+    check(
+      'sse: proposal.signed delivered when the other copayer signs',
+      signedEvent !== null && signedEvent.status === 'pending',
+      signedEvent ? `status=${signedEvent.status}` : 'event not delivered'
+    );
 
     const sigB = await call('POST', `/v1/txproposals/${txp.id}/signatures/`, {
       body: { signatures: signTxInputs(unsigned, cb.xPrivKey) },
@@ -296,6 +421,14 @@ async function main() {
       bcast.status === 400,
       `status=${bcast.status} message=${String(bcast.json?.message).slice(0, 90)}`
     );
+
+    const rejectedEvent = await sse.waitFor(event => event.type === 'proposal.rejected' && event.proposalId === txp.id);
+    check(
+      'sse: proposal.rejected delivered on broadcast failure',
+      rejectedEvent !== null,
+      rejectedEvent ? `message=${String(rejectedEvent.message).slice(0, 60)}` : 'event not delivered'
+    );
+    sse.close();
   }
 
   console.log(failures === 0 ? '\nALL E2E CHECKS PASSED' : `\n${failures} E2E CHECK(S) FAILED`);

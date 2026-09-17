@@ -18,6 +18,7 @@ import { db } from '../db';
 import { addresses, copayers, txProposals, wallets } from '../db/schema';
 import { config } from '../config';
 import { walletService } from './wallet.service';
+import { notificationService } from './notification.service';
 
 function generateId(): string {
   return randomBytes(16).toString('hex');
@@ -184,6 +185,14 @@ export class TxProposalService {
       })
       .returning();
 
+    notificationService.publish({
+      type: 'proposal.created',
+      walletId,
+      proposalId,
+      status: 'pending',
+      copayerId
+    });
+
     return this.toResponse(created, wallet.m);
   }
 
@@ -232,6 +241,15 @@ export class TxProposalService {
       .where(eq(txProposals.proposalId, proposalId))
       .returning();
 
+    notificationService.publish({
+      type: 'proposal.signed',
+      walletId: proposal.walletId,
+      proposalId,
+      status,
+      copayerId,
+      copayerName: copayer?.name ?? copayerId
+    });
+
     return this.toResponse(updated, wallet?.m ?? 1);
   }
 
@@ -259,6 +277,17 @@ export class TxProposalService {
       .returning();
 
     const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, proposal.walletId)).limit(1);
+
+    notificationService.publish({
+      type: 'proposal.rejected',
+      walletId: proposal.walletId,
+      proposalId,
+      status: 'rejected',
+      copayerId,
+      copayerName: copayer?.name ?? copayerId,
+      message: comment
+    });
+
     return this.toResponse(updated, wallet?.m ?? 1);
   }
 
@@ -293,6 +322,16 @@ export class TxProposalService {
         .update(txProposals)
         .set({ actions, status: 'rejected', updatedAt: new Date() })
         .where(eq(txProposals.proposalId, proposalId));
+
+      notificationService.publish({
+        type: 'proposal.rejected',
+        walletId: proposal.walletId,
+        proposalId,
+        status: 'rejected',
+        copayerId,
+        copayerName: copayer?.name ?? copayerId,
+        message: `Broadcast failed: ${(err as Error).message}`
+      });
       throw err;
     }
 
@@ -303,6 +342,16 @@ export class TxProposalService {
       .returning();
 
     const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, proposal.walletId)).limit(1);
+
+    notificationService.publish({
+      type: 'proposal.broadcast',
+      walletId: proposal.walletId,
+      proposalId,
+      status: 'broadcasted',
+      txid,
+      copayerId
+    });
+
     return this.toResponse(updated, wallet?.m ?? 1);
   }
 

@@ -18,6 +18,7 @@ import { addresses, copayerLookup, copayers, wallets } from '../db/schema';
 import { config } from '../config';
 import { formatWalletId } from '../lib/wallet-id';
 import { addressMatchesDerivation } from '../lib/address-validation';
+import { notificationService } from './notification.service';
 
 function generateWalletId(): string {
   const hex = randomBytes(16).toString('hex');
@@ -120,6 +121,20 @@ export class WalletService {
 
     if (status === 'complete') {
       await this.createAddress(walletId, false);
+    }
+
+    notificationService.publish({
+      type: 'wallet.joined',
+      walletId,
+      copayerId,
+      copayerName: req.name
+    });
+    if (status === 'complete') {
+      notificationService.publish({
+        type: 'wallet.complete',
+        walletId,
+        status: 'complete'
+      });
     }
 
     return { wallet: this.toWalletResponse(updated, updatedCopayers) };
