@@ -7,3 +7,6 @@ dist
 .DS_Store
 drizzle/meta
 *.tsbuildinfo
+
+# local diagnostics
+apps/abcpay-api/src/scripts/tmp-*.ts

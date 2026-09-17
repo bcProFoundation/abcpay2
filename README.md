@@ -34,7 +34,8 @@ Modern rebuild of the AbcPay wallet with the **Chronik Wallet Service (CWS)** â€
 - XEC and DOGE wallets only
 - m-of-n multisig shared wallets
 - Transaction proposal coordination (create, sign, reject, broadcast)
-- Live wallet updates over SSE (`proposal.created`, `proposal.signed`, `proposal.rejected`, `proposal.broadcast`, `wallet.joined`, `wallet.complete`); the web keeps one signed stream per wallet, refreshes balances on events, and falls back to 8s polling if the stream drops
+- Live wallet updates over SSE (`proposal.created`, `proposal.signed`, `proposal.rejected`, `proposal.broadcast`, `wallet.joined`, `wallet.complete`, `wallet.activity`); the web keeps one signed stream per wallet, refreshes balances on events, and falls back to 8s polling if the stream drops
+- Push notifications for on-chain activity: while a wallet has an open stream, its known addresses are watched on Chronik WebSocket subscriptions (ref-counted, lazy per chain, auto-resubscribed on reconnect); incoming/outgoing txs are matched by script and pushed as `wallet.activity` with `direction` and `msgType` (`TX_ADDED_TO_MEMPOOL`, `TX_CONFIRMED`, `TX_FINALIZED`, ...)
 - Chronik-backed UTXO lookup and tx broadcast
 - SLP token awareness: token UTXOs are tagged, excluded from XEC spending and coin selection, and token balances are shown (token transfers not yet supported)
 - Postgres instead of MongoDB
