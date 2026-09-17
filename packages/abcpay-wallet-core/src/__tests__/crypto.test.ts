@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assembleTxHex,
+  computeMaxSend,
   copayerIdFromXpub,
   createCredentials,
   decodeAddress,
@@ -198,6 +199,53 @@ describe('coinselect and tx', () => {
         utxos: [{ txid: 'aa'.repeat(32), vout: 0, satoshis: 1_000, address: 'dummy' }]
       })
     ).toThrow(/Insufficient funds: available 1000 sats, need 950/);
+  });
+
+  it('computes the max send amount for all spendable utxos', () => {
+    const result = computeMaxSend({
+      coin: 'xec',
+      utxos: [
+        { txid: 'aa'.repeat(32), vout: 0, satoshis: 1_000, address: 'dummy' },
+        { txid: 'bb'.repeat(32), vout: 1, satoshis: 700, address: 'dummy' }
+      ]
+    });
+    expect(result.totalInput).toBe(1_700);
+    expect(result.fee).toBe(680);
+    expect(result.amount).toBe(1_020);
+  });
+
+  it('accounts for multisig input size in max send', () => {
+    const result = computeMaxSend({
+      coin: 'xec',
+      utxos: [{ txid: 'aa'.repeat(32), vout: 0, satoshis: 5_000, address: 'dummy' }],
+      m: 2,
+      n: 2
+    });
+    expect(result.fee).toBe(616);
+    expect(result.amount).toBe(4_384);
+  });
+
+  it('rejects max send when the remainder would be dust or only token utxos exist', () => {
+    expect(() =>
+      computeMaxSend({
+        coin: 'xec',
+        utxos: [{ txid: 'aa'.repeat(32), vout: 0, satoshis: 900, address: 'dummy' }]
+      })
+    ).toThrow(/below the dust limit/);
+    expect(() =>
+      computeMaxSend({
+        coin: 'xec',
+        utxos: [
+          {
+            txid: 'aa'.repeat(32),
+            vout: 0,
+            satoshis: 100_000,
+            address: 'dummy',
+            token: { tokenId: 'bb'.repeat(32), atoms: '1', isMintBaton: false }
+          }
+        ]
+      })
+    ).toThrow(/No spendable balance/);
   });
 
   it('signs and serializes a P2PKH XEC transaction', () => {

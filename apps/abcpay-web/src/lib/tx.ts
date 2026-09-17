@@ -48,12 +48,20 @@ export async function createAndSendPayment(opts: {
   toAddress: string;
   satoshis: number;
   message?: string;
+  sendMax?: boolean;
 }): Promise<{ proposal: TxProposal; txid?: string }> {
   const wallet = await api.getWallet(opts.auth);
   const created = await api.createTxProposal(opts.auth, {
     proposals: [
       {
-        outputs: [{ toAddress: opts.toAddress, amount: opts.satoshis, message: opts.message }]
+        outputs: [
+          {
+            toAddress: opts.toAddress,
+            amount: opts.sendMax ? 0 : opts.satoshis,
+            message: opts.message
+          }
+        ],
+        sendMax: opts.sendMax
       }
     ]
   });

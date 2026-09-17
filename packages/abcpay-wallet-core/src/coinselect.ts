@@ -34,6 +34,41 @@ export function isSpendableUtxo(utxo: SelectableUtxo): boolean {
   return !utxo.token;
 }
 
+export interface MaxSendResult {
+  inputs: SelectableUtxo[];
+  amount: number;
+  fee: number;
+  totalInput: number;
+}
+
+export function computeMaxSend(opts: {
+  coin: SupportedCoin;
+  utxos: SelectableUtxo[];
+  feePerKb?: number;
+  m?: number;
+  n?: number;
+  outputCount?: number;
+}): MaxSendResult {
+  const feePerKb = opts.feePerKb ?? defaultFeePerKb(opts.coin);
+  const dust = dustThreshold(opts.coin);
+  const inputs = opts.utxos.filter(isSpendableUtxo);
+  if (inputs.length === 0) {
+    throw new Error('No spendable balance: all funds are locked or token-bearing');
+  }
+
+  const totalInput = inputs.reduce((sum, utxo) => sum + utxo.satoshis, 0);
+  const size = estimateTxSize(inputs.length, opts.outputCount ?? 1, opts.n ?? 1, opts.m ?? 1);
+  const fee = Math.max(1, Math.ceil((size * feePerKb) / 1000));
+  const amount = totalInput - fee;
+  if (amount < dust) {
+    throw new Error(
+      `Cannot send max: spendable ${totalInput} sats minus ${fee} sats of fee is below the dust limit`
+    );
+  }
+
+  return { inputs, amount, fee, totalInput };
+}
+
 export function selectUtxos(opts: {
   coin: SupportedCoin;
   utxos: SelectableUtxo[];

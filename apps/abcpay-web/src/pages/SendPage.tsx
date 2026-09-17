@@ -22,6 +22,8 @@ export function SendPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [txid, setTxid] = useState('');
+  const [sentAmount, setSentAmount] = useState(0);
+  const [sendMax, setSendMax] = useState(false);
   const [pending, setPending] = useState<PendingSignatures | null>(null);
 
   if (!wallet) {
@@ -38,6 +40,7 @@ export function SendPage() {
     setLoading(true);
     setError('');
     setTxid('');
+    setSentAmount(0);
     setPending(null);
 
     try {
@@ -49,14 +52,17 @@ export function SendPage() {
       if (!recipient) throw new Error('Recipient address is required');
       if (!validateAddress(wallet.coin, recipient)) throw new Error('Invalid recipient address');
 
-      const parsedAmount = parseFloat(amount);
-      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) throw new Error('Invalid amount');
-      const satoshis = toSatoshis(wallet.coin, parsedAmount);
-      const dust = dustThreshold(wallet.coin);
-      if (satoshis < dust) {
-        throw new Error(
-          `Minimum payment is ${(dust / config.unitToSatoshi).toFixed(config.unitDecimals)} ${config.unitName} (dust limit)`
-        );
+      let satoshis = 0;
+      if (!sendMax) {
+        const parsedAmount = parseFloat(amount);
+        if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) throw new Error('Invalid amount');
+        satoshis = toSatoshis(wallet.coin, parsedAmount);
+        const dust = dustThreshold(wallet.coin);
+        if (satoshis < dust) {
+          throw new Error(
+            `Minimum payment is ${(dust / config.unitToSatoshi).toFixed(config.unitDecimals)} ${config.unitName} (dust limit)`
+          );
+        }
       }
 
       const { proposal, txid: broadcastTxid } = await createAndSendPayment({
@@ -64,9 +70,11 @@ export function SendPage() {
         creds,
         toAddress: recipient,
         satoshis,
-        message: message.trim() || undefined
+        message: message.trim() || undefined,
+        sendMax
       });
 
+      setSentAmount(proposal.amount);
       if (broadcastTxid) {
         setTxid(broadcastTxid);
       } else {
@@ -96,6 +104,11 @@ export function SendPage() {
         {txid ? (
           <div className="text-center py-8">
             <p className="text-green-400 font-medium mb-2">Transaction sent!</p>
+            {sentAmount > 0 && (
+              <p className="text-sm mb-2">
+                {(sentAmount / config.unitToSatoshi).toFixed(config.unitDecimals)} {config.unitName}
+              </p>
+            )}
             <p className="text-xs font-mono break-all text-[var(--abcpay-muted)] mb-6">{txid}</p>
             <button
               onClick={() => navigate(`/wallet/${wallet.id}`)}
@@ -107,6 +120,11 @@ export function SendPage() {
         ) : pending ? (
           <div className="text-center py-8">
             <p className="text-amber-300 font-medium mb-2">Waiting for co-signers</p>
+            {sentAmount > 0 && (
+              <p className="text-sm mb-2">
+                {(sentAmount / config.unitToSatoshi).toFixed(config.unitDecimals)} {config.unitName}
+              </p>
+            )}
             <p className="text-sm text-[var(--abcpay-muted)] mb-6">
               {pending.signed} of {pending.required} signatures collected. Other copayers can sign from
               the wallet page.
@@ -131,16 +149,33 @@ export function SendPage() {
             </div>
 
             <div>
-              <label className="block text-sm text-[var(--abcpay-muted)] mb-2">
-                Amount ({config.unitName})
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm text-[var(--abcpay-muted)]">
+                  Amount ({config.unitName})
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSendMax(current => !current);
+                    setAmount('');
+                  }}
+                  className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                    sendMax
+                      ? 'border-[var(--abcpay-accent)] bg-[var(--abcpay-accent)] text-slate-900 font-medium'
+                      : 'border-white/10 bg-[var(--abcpay-surface)] text-[var(--abcpay-muted)]'
+                  }`}
+                >
+                  {sendMax ? 'Sending max' : 'Send max'}
+                </button>
+              </div>
               <input
                 type="number"
                 step="any"
-                value={amount}
+                value={sendMax ? '' : amount}
                 onChange={e => setAmount(e.target.value)}
-                placeholder="0.00"
-                className="w-full px-4 py-3 bg-[var(--abcpay-surface)] rounded-xl border border-white/10 focus:border-[var(--abcpay-accent)] outline-none"
+                disabled={sendMax}
+                placeholder={sendMax ? 'All funds minus fee' : '0.00'}
+                className="w-full px-4 py-3 bg-[var(--abcpay-surface)] rounded-xl border border-white/10 focus:border-[var(--abcpay-accent)] outline-none disabled:opacity-60"
               />
               <p className="text-xs text-[var(--abcpay-muted)] mt-1">
                 Available: {(wallet.balance / config.unitToSatoshi).toFixed(config.unitDecimals)}{' '}

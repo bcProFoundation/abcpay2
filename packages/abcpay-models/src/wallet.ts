@@ -227,6 +227,7 @@ export const createTxProposalRequestSchema = z.object({
           message: z.string().optional()
         })
       ),
+      sendMax: z.boolean().optional(),
       feePerKb: z.number().optional(),
       excludeUnconfirmedUtxos: z.boolean().optional(),
       message: z.string().optional(),
