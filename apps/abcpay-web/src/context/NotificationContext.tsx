@@ -18,13 +18,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const handlersRef = useRef(new Map<string, Set<(event: NotificationEvent) => void>>());
   const closersRef = useRef(new Map<string, () => void>());
   const refreshTimerRef = useRef<number | undefined>(undefined);
+  const refreshBalancesRef = useRef(refreshBalances);
+  refreshBalancesRef.current = refreshBalances;
 
   const scheduleRefresh = useCallback(() => {
     window.clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = window.setTimeout(() => {
-      void refreshBalances();
+      // Read through the ref: connections outlive wallet-list changes.
+      void refreshBalancesRef.current();
     }, BALANCE_REFRESH_DEBOUNCE_MS);
-  }, [refreshBalances]);
+  }, []);
 
   const subscribe = useCallback((walletId: string, handler: (event: NotificationEvent) => void) => {
     const handlers = handlersRef.current.get(walletId) ?? new Set<(event: NotificationEvent) => void>();

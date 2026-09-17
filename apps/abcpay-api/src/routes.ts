@@ -227,13 +227,18 @@ export function createApp() {
 
         while (!stream.aborted && !stream.closed) {
           if (queue.length === 0) {
+            let heartbeat: ReturnType<typeof setTimeout> | undefined;
             await Promise.race([
               new Promise<void>(resolve => {
                 wake = resolve;
               }),
-              new Promise<void>(resolve => setTimeout(resolve, SSE_HEARTBEAT_MS))
+              new Promise<void>(resolve => {
+                heartbeat = setTimeout(resolve, SSE_HEARTBEAT_MS);
+                heartbeat.unref?.();
+              })
             ]);
             wake = undefined;
+            if (heartbeat) clearTimeout(heartbeat);
           }
 
           if (stream.aborted || stream.closed) break;

@@ -327,13 +327,14 @@ async function main() {
     const dest = fixtureWallet('xec-899-1of1').addresses.find((a: any) => a.path === 'm/0/1');
 
     const sse = await openSse('/v1/notifications/', { creds: cb, walletId: seed.id, identity: cb.copayerId });
-    const ready = await sse.waitFor(event => event.type === 'ready');
-    check('sse: stream ready for wallet', ready !== null, ready ? 'ready event received' : 'no ready event');
-    check(
-      'sse: chain watcher subscribed the wallet addresses',
-      ready !== null && Number(ready.watching) >= 1,
-      `watching=${ready?.watching} chain=${ready?.chain}`
-    );
+    try {
+      const ready = await sse.waitFor(event => event.type === 'ready');
+      check('sse: stream ready for wallet', ready !== null, ready ? 'ready event received' : 'no ready event');
+      check(
+        'sse: chain watcher subscribed the wallet addresses',
+        ready !== null && Number(ready.watching) >= 1,
+        `watching=${ready?.watching} chain=${ready?.chain}`
+      );
 
     const created = await call('POST', '/v3/txproposals/', {
       body: {
@@ -363,77 +364,79 @@ async function main() {
       created.status === 201 && created.json.status === 'pending',
       `status=${created.status} txp=${created.json?.id}`
     );
-    const txp = created.json;
-    const createdEvent = await sse.waitFor(event => event.type === 'proposal.created' && event.proposalId === txp.id);
-    check(
-      'sse: proposal.created delivered to the other copayer',
-      createdEvent !== null,
-      createdEvent ? `proposalId=${createdEvent.proposalId}` : 'event not delivered'
-    );
-    const unsigned: UnsignedTx = unsignedTxFromProposal({
-      coin: 'xec',
-      inputs: txp.inputs,
-      outputs: txp.outputs,
-      amount: txp.amount,
-      fee: txp.fee,
-      changeAddress: txp.changeAddress
-    });
+      const txp = created.json;
+      const createdEvent = await sse.waitFor(event => event.type === 'proposal.created' && event.proposalId === txp.id);
+      check(
+        'sse: proposal.created delivered to the other copayer',
+        createdEvent !== null,
+        createdEvent ? `proposalId=${createdEvent.proposalId}` : 'event not delivered'
+      );
+      const unsigned: UnsignedTx = unsignedTxFromProposal({
+        coin: 'xec',
+        inputs: txp.inputs,
+        outputs: txp.outputs,
+        amount: txp.amount,
+        fee: txp.fee,
+        changeAddress: txp.changeAddress
+      });
 
-    const sigA = await call('POST', `/v1/txproposals/${txp.id}/signatures/`, {
-      body: { signatures: signTxInputs(unsigned, ca.xPrivKey) },
-      creds: ca,
-      walletId: seed.id,
-      identity: ca.copayerId
-    });
-    check('multisig: copayer A signature accepted', sigA.status === 200 && sigA.json.status === 'pending');
-    const signedEvent = await sse.waitFor(
-      event => event.type === 'proposal.signed' && event.copayerId === ca.copayerId
-    );
-    check(
-      'sse: proposal.signed delivered when the other copayer signs',
-      signedEvent !== null && signedEvent.status === 'pending',
-      signedEvent ? `status=${signedEvent.status}` : 'event not delivered'
-    );
+      const sigA = await call('POST', `/v1/txproposals/${txp.id}/signatures/`, {
+        body: { signatures: signTxInputs(unsigned, ca.xPrivKey) },
+        creds: ca,
+        walletId: seed.id,
+        identity: ca.copayerId
+      });
+      check('multisig: copayer A signature accepted', sigA.status === 200 && sigA.json.status === 'pending');
+      const signedEvent = await sse.waitFor(
+        event => event.type === 'proposal.signed' && event.copayerId === ca.copayerId
+      );
+      check(
+        'sse: proposal.signed delivered when the other copayer signs',
+        signedEvent !== null && signedEvent.status === 'pending',
+        signedEvent ? `status=${signedEvent.status}` : 'event not delivered'
+      );
 
-    const sigB = await call('POST', `/v1/txproposals/${txp.id}/signatures/`, {
-      body: { signatures: signTxInputs(unsigned, cb.xPrivKey) },
-      creds: cb,
-      walletId: seed.id,
-      identity: cb.copayerId
-    });
-    check(
-      'multisig: proposal accepted at m=2',
-      sigB.status === 200 && sigB.json.status === 'accepted',
-      `status=${sigB.json?.status} sigs=${Object.keys(sigB.json?.signatures ?? {}).length}`
-    );
+      const sigB = await call('POST', `/v1/txproposals/${txp.id}/signatures/`, {
+        body: { signatures: signTxInputs(unsigned, cb.xPrivKey) },
+        creds: cb,
+        walletId: seed.id,
+        identity: cb.copayerId
+      });
+      check(
+        'multisig: proposal accepted at m=2',
+        sigB.status === 200 && sigB.json.status === 'accepted',
+        `status=${sigB.json?.status} sigs=${Object.keys(sigB.json?.signatures ?? {}).length}`
+      );
 
-    const merged = mergeCopayerSignatures({
-      tx: unsigned,
-      copayers: wallet.copayers.map((c: any) => ({ copayerId: c.copayerId, xPubKey: c.xPubKey })),
-      signatures: sigB.json.signatures
-    });
-    const raw = assembleTxHex(unsigned, merged);
-    check('multisig: assembled transaction', raw.length > 200, `bytes=${raw.length / 2}`);
+      const merged = mergeCopayerSignatures({
+        tx: unsigned,
+        copayers: wallet.copayers.map((c: any) => ({ copayerId: c.copayerId, xPubKey: c.xPubKey })),
+        signatures: sigB.json.signatures
+      });
+      const raw = assembleTxHex(unsigned, merged);
+      check('multisig: assembled transaction', raw.length > 200, `bytes=${raw.length / 2}`);
 
-    const bcast = await call('POST', `/v1/txproposals/${txp.id}/broadcast/`, {
-      body: { raw },
-      creds: ca,
-      walletId: seed.id,
-      identity: ca.copayerId
-    });
-    check(
-      'multisig: fabricated UTXO broadcast rejected by Chronik (expected)',
-      bcast.status === 400,
-      `status=${bcast.status} message=${String(bcast.json?.message).slice(0, 90)}`
-    );
+      const bcast = await call('POST', `/v1/txproposals/${txp.id}/broadcast/`, {
+        body: { raw },
+        creds: ca,
+        walletId: seed.id,
+        identity: ca.copayerId
+      });
+      check(
+        'multisig: fabricated UTXO broadcast rejected by Chronik (expected)',
+        bcast.status === 400,
+        `status=${bcast.status} message=${String(bcast.json?.message).slice(0, 90)}`
+      );
 
-    const rejectedEvent = await sse.waitFor(event => event.type === 'proposal.rejected' && event.proposalId === txp.id);
-    check(
-      'sse: proposal.rejected delivered on broadcast failure',
-      rejectedEvent !== null,
-      rejectedEvent ? `message=${String(rejectedEvent.message).slice(0, 60)}` : 'event not delivered'
-    );
-    sse.close();
+      const rejectedEvent = await sse.waitFor(event => event.type === 'proposal.rejected' && event.proposalId === txp.id);
+      check(
+        'sse: proposal.rejected delivered on broadcast failure',
+        rejectedEvent !== null,
+        rejectedEvent ? `message=${String(rejectedEvent.message).slice(0, 60)}` : 'event not delivered'
+      );
+    } finally {
+      sse.close();
+    }
   }
 
   console.log(failures === 0 ? '\nALL E2E CHECKS PASSED' : `\n${failures} E2E CHECK(S) FAILED`);

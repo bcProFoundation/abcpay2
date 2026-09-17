@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import type { TokenBalance, TxProposal, WalletResponse } from '@bcpros/abcpay-models';
@@ -39,18 +39,23 @@ export function WalletDetailPage() {
   const creds = id ? credentialsFor(id) : undefined;
   const connectionState = id ? stateFor(id) : 'offline';
 
+  const loadSeqRef = useRef(0);
+
   async function load() {
     if (!auth) return;
+    const seq = ++loadSeqRef.current;
     try {
       const [w, p, balance] = await Promise.all([
         api.getWallet(auth),
         api.getTxProposals(auth),
         api.getBalance(auth)
       ]);
+      if (seq !== loadSeqRef.current) return;
       setRemote(w);
       setProposals(p.filter(item => item.status === 'pending' || item.status === 'accepted'));
       setTokens(balance.tokens ?? []);
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       setError((err as Error).message);
     }
   }
