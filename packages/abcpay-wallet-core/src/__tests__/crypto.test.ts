@@ -350,10 +350,10 @@ describe('coinselect and tx', () => {
 });
 
 describe('request auth', () => {
-  it('signs and verifies BWS-style request signatures', () => {
+  it('signs and verifies BWS-compatible request signatures', () => {
     const creds = createCredentials({ coin: 'doge', mnemonic: MNEMONIC });
-    const sig = signRequest(creds.requestPrivKey, 'GET', '/bws/api/v3/wallets/', '');
-    expect(verifyRequest(creds.requestPubKey, sig, 'GET', '/bws/api/v3/wallets/', '')).toBe(true);
-    expect(verifyRequest(creds.requestPubKey, sig, 'POST', '/bws/api/v3/wallets/', '')).toBe(false);
+    const sig = signRequest(creds.requestPrivKey, 'GET', '/cws/api/v3/wallets/', '');
+    expect(verifyRequest(creds.requestPubKey, sig, 'GET', '/cws/api/v3/wallets/', '')).toBe(true);
+    expect(verifyRequest(creds.requestPubKey, sig, 'POST', '/cws/api/v3/wallets/', '')).toBe(false);
   });
 });

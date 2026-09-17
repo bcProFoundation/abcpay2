@@ -17,6 +17,7 @@
 | D4 | v2 freezes legacy BWC derivation/identity conventions as the canonical spec | Existing wallets, request keys, and join secrets keep working; kills the hash160/sha256 and `m/1'/0` vs `m/1'/0'` split |
 | D5 | XPI (and other legacy coins) out of scope for v2 migration | Different chain/workstream, low current value; separate future design |
 | D6 | Legacy BWS stays read-only for XPI/other-coin holders until they export or migrate manually | Avoid stranding funds without blocking v2 |
+| D7 | The service is named CWS (Chronik Wallet Service) and served at `/cws/api`; `/bws/api` remains as an alias | The name reflects the Chronik engine while keeping the BWS-compatible contract for BWC tooling and legacy clients |
 
 ---
 
@@ -46,7 +47,7 @@
 
 | Convention | Canonical value (legacy BWC 8.25.45) | v2 state |
 |------------|----------------------------------------|----------|
-| Copayer ID | `sha256(lowercase(chain) + xPubKey)` hex; no prefix for `btc` only (`Utils.xPubToCopayerId`) | `wallet-core` now matches; `bws-utils.ts` already matched |
+| Copayer ID | `sha256(lowercase(chain) + xPubKey)` hex; no prefix for `btc` only (`Utils.xPubToCopayerId`) | `wallet-core` now matches; `wallet-id.ts` already matched |
 | Request key path | `m/1'/0` from root (`Constants.PATHS.REQUEST_KEY`) | `wallet-core` matches; web `wallet-client.ts` uses `m/1'/0'` — must change |
 | Account purpose | 44' single-sig, 48' multisig (`Key.getBaseAddressDerivationPath`) | Matches |
 | Coin type | XEC 899 (native, Electrum ABC) and 1899 (token-aware, Cashtab/ecash-wallet); DOGE 3 | v2 stores per-wallet `coinType`; defaults: XEC single-sig 1899, XEC multisig 899, DOGE 3; explicit override for imported wallets |

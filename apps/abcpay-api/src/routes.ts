@@ -10,9 +10,7 @@ import { authMiddleware } from './middleware/auth';
 import { config } from './config';
 
 export function createApp() {
-  const app = new Hono<{ Variables: { copayerId: string; walletId: string } }>().basePath(
-    config.basePath
-  );
+  const app = new Hono<{ Variables: { copayerId: string; walletId: string } }>();
 
   app.use('*', cors());
   app.use('*', authMiddleware);
@@ -282,5 +280,8 @@ export function createApp() {
     return c.json(rate);
   });
 
-  return app;
+  const root = new Hono();
+  root.route(config.basePath, app);
+  root.route(config.legacyBasePath, app);
+  return root;
 }

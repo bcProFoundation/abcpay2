@@ -16,7 +16,7 @@ import {
 import { db } from '../db';
 import { addresses, copayerLookup, copayers, wallets } from '../db/schema';
 import { config } from '../config';
-import { formatWalletId } from '../lib/bws-utils';
+import { formatWalletId } from '../lib/wallet-id';
 import { addressMatchesDerivation } from '../lib/address-validation';
 
 function generateWalletId(): string {

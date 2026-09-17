@@ -46,7 +46,7 @@ function proxy(req, res) {
 }
 
 function handleRequest(req, res) {
-  if (req.url.startsWith('/bws/')) return proxy(req, res);
+  if (req.url.startsWith('/cws/') || req.url.startsWith('/bws/')) return proxy(req, res);
 
   let requestPath;
   try {

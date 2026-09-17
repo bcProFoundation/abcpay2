@@ -15,6 +15,10 @@ export default defineConfig({
     port: 5173,
     host: true,
     proxy: {
+      '/cws': {
+        target: 'http://localhost:3232',
+        changeOrigin: true
+      },
       '/bws': {
         target: 'http://localhost:3232',
         changeOrigin: true

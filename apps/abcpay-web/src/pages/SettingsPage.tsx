@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useWallets } from '../context/WalletContext';
+import { API_URL } from '../lib/api';
 
 export function SettingsPage() {
   const { wallets, credentialsFor, removeWallet } = useWallets();
@@ -11,7 +12,7 @@ export function SettingsPage() {
       </header>
 
       <div className="px-4 py-6 space-y-2">
-        <SettingsItem label="BWS Server" value={import.meta.env.VITE_BWS_URL ?? '/bws/api'} />
+        <SettingsItem label="Wallet server" value={API_URL} />
         <SettingsItem label="Supported coins" value="XEC, DOGE" />
         <SettingsItem label="Version" value="0.2.0" />
 
