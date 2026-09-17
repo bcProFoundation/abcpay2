@@ -20,6 +20,21 @@ export function proposalToUnsignedTx(proposal: TxProposal) {
   });
 }
 
+export async function broadcastProposal(
+  proposal: TxProposal,
+  auth: AuthContext,
+  copayers: Array<{ copayerId?: string; id?: string; xPubKey: string }>
+): Promise<TxProposal> {
+  const unsigned = proposalToUnsignedTx(proposal);
+  const merged = mergeCopayerSignatures({
+    tx: unsigned,
+    copayers: copayers.map(c => ({ copayerId: c.copayerId ?? c.id ?? '', xPubKey: c.xPubKey })),
+    signatures: proposal.signatures ?? {}
+  });
+  const raw = assembleTxHex(unsigned, merged);
+  return api.broadcastTxProposal(auth, proposal.id, raw);
+}
+
 export async function signAndMaybeBroadcast(
   proposal: TxProposal,
   creds: StoredCredentials,
@@ -31,15 +46,7 @@ export async function signAndMaybeBroadcast(
   const signed = await api.signTxProposal(auth, proposal.id, signatures);
 
   if (signed.status !== 'accepted') return signed;
-
-  const allSigs = signed.signatures ?? {};
-  const merged = mergeCopayerSignatures({
-    tx: unsigned,
-    copayers: copayers.map(c => ({ copayerId: c.copayerId ?? c.id ?? '', xPubKey: c.xPubKey })),
-    signatures: allSigs
-  });
-  const raw = assembleTxHex(unsigned, merged);
-  return api.broadcastTxProposal(auth, proposal.id, raw);
+  return broadcastProposal(signed, auth, copayers);
 }
 
 export async function createAndSendPayment(opts: {

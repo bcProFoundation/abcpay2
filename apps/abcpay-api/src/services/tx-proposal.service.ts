@@ -265,10 +265,30 @@ export class TxProposalService {
     }
 
     const chain = chainFromCoin(proposal.coin as SupportedCoin);
-    const txid = await broadcastTx(chain, raw, {
-      xecUrls: config.chronik.xecUrls,
-      dogeUrls: config.chronik.dogeUrls
-    });
+    let txid: string;
+    try {
+      txid = await broadcastTx(chain, raw, {
+        xecUrls: config.chronik.xecUrls,
+        dogeUrls: config.chronik.dogeUrls
+      });
+    } catch (err) {
+      const [copayer] = await db.select().from(copayers).where(eq(copayers.copayerId, copayerId)).limit(1);
+      const actions = [
+        ...((proposal.actions as Array<Record<string, unknown>>) ?? []),
+        {
+          type: 'reject',
+          copayerId,
+          copayerName: copayer?.name ?? copayerId,
+          comment: `Broadcast failed: ${(err as Error).message}`,
+          createdOn: Date.now()
+        }
+      ];
+      await db
+        .update(txProposals)
+        .set({ actions, status: 'rejected', updatedAt: new Date() })
+        .where(eq(txProposals.proposalId, proposalId));
+      throw err;
+    }
 
     const [updated] = await db
       .update(txProposals)
