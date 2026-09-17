@@ -44,16 +44,3 @@ export async function getWalletBalance(credentialsJson: string): Promise<number>
   const stored = deserializeWallet(credentialsJson);
   return getBalance(stored);
 }
-
-export async function createAndPublishTx(_opts: {
-  credentialsJson: string;
-  toAddress: string;
-  amount: number;
-  message?: string;
-}): Promise<{ id: string; status: string }> {
-  throw new Error('Send transactions via the BWS tx proposal API — coming soon for multisig flows');
-}
-
-export async function signAndBroadcastTx(_credentialsJson: string, _txp: { id: string }): Promise<string> {
-  throw new Error('Broadcast via BWS tx proposal API — coming soon for multisig flows');
-}

@@ -5,7 +5,7 @@ import type { TokenBalance, TxProposal, WalletResponse } from '@bcpros/abcpay-mo
 import { CoinBadge, MultisigBadge } from '../components/ui';
 import { useWallets } from '../context/WalletContext';
 import { api } from '../lib/api';
-import { signAndMaybeBroadcast } from '../lib/tx';
+import { broadcastProposal, signAndMaybeBroadcast } from '../lib/tx';
 
 function formatTokenAtoms(atoms: string, decimals?: number): string {
   try {
@@ -146,55 +146,82 @@ export function WalletDetailPage() {
         <div className="mx-4 p-4 bg-[var(--abcpay-surface)] rounded-2xl">
           <h3 className="font-medium mb-3">Transaction proposals</h3>
           <div className="space-y-3">
-            {proposals.map(p => (
-              <div key={p.id} className="p-3 bg-[var(--abcpay-surface-2)] rounded-xl">
-                <p className="text-sm">
-                  {(p.amount / config.unitToSatoshi).toFixed(config.unitDecimals)} {config.unitName} →{' '}
-                  {p.outputs[0]?.toAddress.slice(0, 18)}…
-                </p>
-                <p className="text-xs text-[var(--abcpay-muted)] mt-1">
-                  {Object.keys(p.signatures ?? {}).length}/{p.requiredSignatures} signatures · {p.status}
-                </p>
-                <div className="flex gap-2 mt-3">
-                  <button
-                    disabled={Boolean(busy) || Boolean(p.signatures?.[wallet.copayerId])}
-                    onClick={async () => {
-                      setBusy(p.id);
-                      setError('');
-                      try {
-                        await signAndMaybeBroadcast(p, creds, auth, remote?.copayers ?? []);
-                        await load();
-                        await refreshBalances();
-                      } catch (err) {
-                        setError((err as Error).message);
-                      } finally {
-                        setBusy('');
-                      }
-                    }}
-                    className="flex-1 py-2 bg-[var(--abcpay-accent)] rounded-lg text-sm disabled:opacity-40"
-                  >
-                    {busy === p.id ? 'Signing…' : 'Sign'}
-                  </button>
-                  <button
-                    disabled={Boolean(busy)}
-                    onClick={async () => {
-                      setBusy(p.id);
-                      try {
-                        await api.rejectTxProposal(auth, p.id);
-                        await load();
-                      } catch (err) {
-                        setError((err as Error).message);
-                      } finally {
-                        setBusy('');
-                      }
-                    }}
-                    className="flex-1 py-2 bg-red-500/20 text-red-300 rounded-lg text-sm"
-                  >
-                    Reject
-                  </button>
+            {proposals.map(p => {
+              const signedCount = Object.keys(p.signatures ?? {}).length;
+              const readyToBroadcast = p.status === 'accepted' && signedCount >= p.requiredSignatures;
+              return (
+                <div key={p.id} className="p-3 bg-[var(--abcpay-surface-2)] rounded-xl">
+                  <p className="text-sm">
+                    {(p.amount / config.unitToSatoshi).toFixed(config.unitDecimals)} {config.unitName} →{' '}
+                    {p.outputs[0]?.toAddress.slice(0, 18)}…
+                  </p>
+                  <p className="text-xs text-[var(--abcpay-muted)] mt-1">
+                    {signedCount}/{p.requiredSignatures} signatures ·{' '}
+                    {readyToBroadcast ? 'ready to broadcast' : p.status}
+                  </p>
+                  <div className="flex gap-2 mt-3">
+                    {readyToBroadcast ? (
+                      <button
+                        disabled={Boolean(busy)}
+                        onClick={async () => {
+                          setBusy(p.id);
+                          setError('');
+                          try {
+                            await broadcastProposal(p, auth, remote?.copayers ?? []);
+                          } catch (err) {
+                            setError((err as Error).message);
+                          } finally {
+                            await load();
+                            await refreshBalances();
+                            setBusy('');
+                          }
+                        }}
+                        className="flex-1 py-2 bg-[var(--abcpay-accent)] rounded-lg text-sm disabled:opacity-40"
+                      >
+                        {busy === p.id ? 'Broadcasting…' : 'Broadcast'}
+                      </button>
+                    ) : (
+                      <button
+                        disabled={Boolean(busy) || Boolean(p.signatures?.[wallet.copayerId])}
+                        onClick={async () => {
+                          setBusy(p.id);
+                          setError('');
+                          try {
+                            await signAndMaybeBroadcast(p, creds, auth, remote?.copayers ?? []);
+                          } catch (err) {
+                            setError((err as Error).message);
+                          } finally {
+                            await load();
+                            await refreshBalances();
+                            setBusy('');
+                          }
+                        }}
+                        className="flex-1 py-2 bg-[var(--abcpay-accent)] rounded-lg text-sm disabled:opacity-40"
+                      >
+                        {busy === p.id ? 'Signing…' : 'Sign'}
+                      </button>
+                    )}
+                    <button
+                      disabled={Boolean(busy)}
+                      onClick={async () => {
+                        setBusy(p.id);
+                        try {
+                          await api.rejectTxProposal(auth, p.id);
+                          await load();
+                        } catch (err) {
+                          setError((err as Error).message);
+                        } finally {
+                          setBusy('');
+                        }
+                      }}
+                      className="flex-1 py-2 bg-red-500/20 text-red-300 rounded-lg text-sm"
+                    >
+                      Reject
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

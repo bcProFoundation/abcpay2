@@ -4,8 +4,12 @@ import type { CreateTxProposalRequest, ProposalInput, SupportedCoin } from '@bcp
 import {
   broadcastTx,
   chainFromCoin,
+  computeMaxSend,
   defaultFeePerKb,
   deriveWalletAddress,
+  dustThreshold,
+  estimateTxSize,
+  minRelayFeePerKb,
   relativePath,
   selectUtxos,
   validateAddress
@@ -32,6 +36,35 @@ export class TxProposalService {
     }
   }
 
+  private async deriveProposalInputs(
+    wallet: typeof wallets.$inferSelect,
+    walletCopayers: (typeof copayers.$inferSelect)[],
+    utxos: Array<{ txid: string; vout: number; satoshis: number; address: string; path?: string }>
+  ): Promise<ProposalInput[]> {
+    const addrRows = await db.select().from(addresses).where(eq(addresses.walletId, wallet.walletId));
+    return utxos.map(utxo => {
+      const row = addrRows.find(a => a.address === utxo.address);
+      const derived = deriveWalletAddress({
+        coin: wallet.coin as SupportedCoin,
+        network: wallet.network as 'livenet' | 'testnet',
+        xPubKeys: walletCopayers.map(c => c.xPubKey),
+        m: wallet.m,
+        n: wallet.n,
+        path: row?.path ?? utxo.path ?? relativePath(false, 0)
+      });
+      return {
+        txid: utxo.txid,
+        vout: utxo.vout,
+        satoshis: utxo.satoshis,
+        address: derived.address,
+        path: derived.path,
+        publicKeys: derived.publicKeys,
+        redeemScript: derived.redeemScript,
+        scriptPubKey: derived.scriptPubKey
+      };
+    });
+  }
+
   async createProposal(walletId: string, copayerId: string, req: CreateTxProposalRequest) {
     const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
     if (!wallet) throw new Error('Wallet not found');
@@ -47,14 +80,35 @@ export class TxProposalService {
       }
     }
 
-    const amount = proposal.outputs.reduce((sum, o) => sum + o.amount, 0);
-    const feePerKb = proposal.feePerKb ?? defaultFeePerKb(wallet.coin as SupportedCoin);
+    let amount = proposal.outputs.reduce((sum, o) => sum + o.amount, 0);
+    const feePerKb = Math.max(
+      minRelayFeePerKb(wallet.coin as SupportedCoin),
+      proposal.feePerKb ?? defaultFeePerKb(wallet.coin as SupportedCoin)
+    );
     const walletCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
     let inputs = proposal.inputs as ProposalInput[] | undefined;
     let changeAddress = proposal.changeAddress;
     let fee = 0;
 
-    if (!inputs || inputs.length === 0) {
+    if (proposal.sendMax) {
+      if (proposal.outputs.length !== 1) {
+        throw new Error('sendMax requires exactly one output');
+      }
+      const utxos = await walletService.getUtxos(walletId);
+      const max = computeMaxSend({
+        coin: wallet.coin as SupportedCoin,
+        utxos,
+        feePerKb,
+        m: wallet.m,
+        n: wallet.n,
+        outputCount: 1
+      });
+      fee = max.fee;
+      amount = max.amount;
+      proposal.outputs[0].amount = max.amount;
+      inputs = await this.deriveProposalInputs(wallet, walletCopayers, max.inputs);
+      changeAddress = undefined;
+    } else if (!inputs || inputs.length === 0) {
       const utxos = await walletService.getUtxos(walletId);
       const selected = selectUtxos({
         coin: wallet.coin as SupportedCoin,
@@ -66,28 +120,7 @@ export class TxProposalService {
         outputCount: proposal.outputs.length + 1
       });
       fee = selected.fee;
-      const addrRows = await db.select().from(addresses).where(eq(addresses.walletId, walletId));
-      inputs = selected.inputs.map(utxo => {
-        const row = addrRows.find(a => a.address === utxo.address);
-        const derived = deriveWalletAddress({
-          coin: wallet.coin as SupportedCoin,
-          network: wallet.network as 'livenet' | 'testnet',
-          xPubKeys: walletCopayers.map(c => c.xPubKey),
-          m: wallet.m,
-          n: wallet.n,
-          path: row?.path ?? utxo.path ?? relativePath(false, 0)
-        });
-        return {
-          txid: utxo.txid,
-          vout: utxo.vout,
-          satoshis: utxo.satoshis,
-          address: derived.address,
-          path: derived.path,
-          publicKeys: derived.publicKeys,
-          redeemScript: derived.redeemScript,
-          scriptPubKey: derived.scriptPubKey
-        };
-      });
+      inputs = await this.deriveProposalInputs(wallet, walletCopayers, selected.inputs);
       if (selected.change > 0) {
         const change = await walletService.createAddress(walletId, true);
         changeAddress = { address: change.address, path: change.path };
@@ -113,13 +146,19 @@ export class TxProposalService {
         };
       });
       const totalIn = inputs.reduce((sum, i) => sum + i.satoshis, 0);
-      const outputSum = proposal.outputs.reduce((sum, o) => sum + o.amount, 0);
-      fee = totalIn - outputSum;
-      if (changeAddress) {
-        // payment outputs only; remaining after fee is change — client already accounted for fee
-        fee = Math.max(0, fee);
+      const size = estimateTxSize(inputs.length, proposal.outputs.length + 1, wallet.n, wallet.m);
+      fee = Math.max(1, Math.ceil((size * feePerKb) / 1000));
+      const dust = dustThreshold(wallet.coin as SupportedCoin);
+      const change = totalIn - amount - fee;
+      if (change < 0) throw new Error('Insufficient funds');
+      if (change < dust) {
+        // The omitted change becomes part of the fee, so report the actual fee.
+        fee = totalIn - amount;
+        changeAddress = undefined;
+      } else if (!changeAddress) {
+        const alternate = await walletService.createAddress(walletId, true);
+        changeAddress = { address: alternate.address, path: alternate.path };
       }
-      if (fee < 0) throw new Error('Outputs exceed inputs');
     }
 
     const proposalId = generateId();
@@ -232,10 +271,30 @@ export class TxProposalService {
     }
 
     const chain = chainFromCoin(proposal.coin as SupportedCoin);
-    const txid = await broadcastTx(chain, raw, {
-      xecUrls: config.chronik.xecUrls,
-      dogeUrls: config.chronik.dogeUrls
-    });
+    let txid: string;
+    try {
+      txid = await broadcastTx(chain, raw, {
+        xecUrls: config.chronik.xecUrls,
+        dogeUrls: config.chronik.dogeUrls
+      });
+    } catch (err) {
+      const [copayer] = await db.select().from(copayers).where(eq(copayers.copayerId, copayerId)).limit(1);
+      const actions = [
+        ...((proposal.actions as Array<Record<string, unknown>>) ?? []),
+        {
+          type: 'broadcast_error',
+          copayerId,
+          copayerName: copayer?.name ?? copayerId,
+          comment: `Broadcast failed: ${(err as Error).message}`,
+          createdOn: Date.now()
+        }
+      ];
+      await db
+        .update(txProposals)
+        .set({ actions, status: 'rejected', updatedAt: new Date() })
+        .where(eq(txProposals.proposalId, proposalId));
+      throw err;
+    }
 
     const [updated] = await db
       .update(txProposals)

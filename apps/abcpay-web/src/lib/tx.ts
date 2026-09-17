@@ -20,6 +20,21 @@ export function proposalToUnsignedTx(proposal: TxProposal) {
   });
 }
 
+export async function broadcastProposal(
+  proposal: TxProposal,
+  auth: AuthContext,
+  copayers: Array<{ copayerId?: string; id?: string; xPubKey: string }>
+): Promise<TxProposal> {
+  const unsigned = proposalToUnsignedTx(proposal);
+  const merged = mergeCopayerSignatures({
+    tx: unsigned,
+    copayers: copayers.map(c => ({ copayerId: c.copayerId ?? c.id ?? '', xPubKey: c.xPubKey })),
+    signatures: proposal.signatures ?? {}
+  });
+  const raw = assembleTxHex(unsigned, merged);
+  return api.broadcastTxProposal(auth, proposal.id, raw);
+}
+
 export async function signAndMaybeBroadcast(
   proposal: TxProposal,
   creds: StoredCredentials,
@@ -31,13 +46,32 @@ export async function signAndMaybeBroadcast(
   const signed = await api.signTxProposal(auth, proposal.id, signatures);
 
   if (signed.status !== 'accepted') return signed;
+  return broadcastProposal(signed, auth, copayers);
+}
 
-  const allSigs = signed.signatures ?? {};
-  const merged = mergeCopayerSignatures({
-    tx: unsigned,
-    copayers: copayers.map(c => ({ copayerId: c.copayerId ?? c.id ?? '', xPubKey: c.xPubKey })),
-    signatures: allSigs
+export async function createAndSendPayment(opts: {
+  auth: AuthContext;
+  creds: StoredCredentials;
+  toAddress: string;
+  satoshis: number;
+  message?: string;
+  sendMax?: boolean;
+}): Promise<{ proposal: TxProposal; txid?: string }> {
+  const wallet = await api.getWallet(opts.auth);
+  const created = await api.createTxProposal(opts.auth, {
+    proposals: [
+      {
+        outputs: [
+          {
+            toAddress: opts.toAddress,
+            amount: opts.sendMax ? 0 : opts.satoshis,
+            message: opts.message
+          }
+        ],
+        sendMax: opts.sendMax
+      }
+    ]
   });
-  const raw = assembleTxHex(unsigned, merged);
-  return api.broadcastTxProposal(auth, proposal.id, raw);
+  const proposal = await signAndMaybeBroadcast(created, opts.creds, opts.auth, wallet.copayers);
+  return { proposal, txid: proposal.txid };
 }

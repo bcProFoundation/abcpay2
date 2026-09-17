@@ -154,6 +154,23 @@ export function signHash(privateKey: Uint8Array, sighash: Uint8Array, coin: Supp
   return bytesToHex(concatBytes(sig.toDERRawBytes(), Uint8Array.of(sighashType(coin))));
 }
 
+export function verifyInputSignature(
+  signatureHex: string,
+  sighash: Uint8Array,
+  publicKeyHex: string,
+  coin?: SupportedCoin
+): boolean {
+  try {
+    if (coin && signatureHex.slice(-2).toLowerCase() !== sighashType(coin).toString(16).padStart(2, '0')) {
+      return false;
+    }
+    const der = hexToBytes(signatureHex.slice(0, -2));
+    return secp256k1.verify(der, sighash, hexToBytes(publicKeyHex));
+  } catch {
+    return false;
+  }
+}
+
 export function signTxInputs(tx: UnsignedTx, xPrivKey: string): string[] {
   return tx.inputs.map((input, index) => {
     const priv = derivePrivateKey(xPrivKey, input.path);
