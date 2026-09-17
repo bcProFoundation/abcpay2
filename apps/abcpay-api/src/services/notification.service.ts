@@ -5,6 +5,14 @@ type Subscriber = (event: NotificationEvent) => void;
 export class NotificationService {
   private subscribers = new Map<string, Set<Subscriber>>();
 
+  constructor() {
+    // Methods may be passed around as callbacks (e.g. the chain watcher's default publisher).
+    this.subscribe = this.subscribe.bind(this);
+    this.publish = this.publish.bind(this);
+    this.subscriberCount = this.subscriberCount.bind(this);
+    this.clear = this.clear.bind(this);
+  }
+
   subscribe(walletId: string, subscriber: Subscriber): () => void {
     const set = this.subscribers.get(walletId) ?? new Set<Subscriber>();
     set.add(subscriber);

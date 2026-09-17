@@ -80,4 +80,15 @@ describe('NotificationService', () => {
   it('exposes a shared singleton', () => {
     expect(notificationService).toBeInstanceOf(NotificationService);
   });
+
+  it('keeps singleton methods bound when passed as callbacks', () => {
+    const received: Array<{ walletId: string }> = [];
+    const unsubscribe = notificationService.subscribe('wallet-detached', event => received.push(event));
+
+    const { publish } = notificationService;
+    expect(() => publish({ type: 'wallet.activity', walletId: 'wallet-detached', txid: 'ab'.repeat(32) })).not.toThrow();
+    expect(received).toHaveLength(1);
+
+    unsubscribe();
+  });
 });

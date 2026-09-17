@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { scriptPubKeyHexFromAddress, type ChainWsMessage, type ChronikWsHandle } from '@bcpros/abcpay-wallet-core';
 import type { NotificationEvent } from '@bcpros/abcpay-models';
 import { ChainWatcher } from '../chain-watcher.service';
+import { notificationService } from '../notification.service';
 
 const ADDRESS_A = 'ecash:qpluxjhhlxfjwsymf9nmctvsdrwzwygadsh2pq0ang';
 const ADDRESS_B = 'ecash:qrtmy72hp7ks80xalvlt8jxczd6l3wr5zga5vct0s4';
@@ -39,7 +40,7 @@ function txMessage(txid: string, msgType = 'TX_ADDED_TO_MEMPOOL'): ChainWsMessag
   return { type: 'Tx', msgType, txid };
 }
 
-function setup(options: { failOpen?: boolean } = {}) {
+function setup(options: { failOpen?: boolean; defaultPublish?: boolean } = {}) {
   const ws = new FakeWs(options.failOpen);
   const published: NotificationEvent[] = [];
   const targets: Record<string, { chain: 'XEC' | 'DOGE'; addresses: string[] } | null> = {
@@ -56,7 +57,9 @@ function setup(options: { failOpen?: boolean } = {}) {
       return ws;
     },
     getTxScripts: async (_chain, txid) => scriptsByTx.get(txid) ?? { inputs: [], outputs: [] },
-    publish: event => published.push({ ...event, at: event.at ?? Date.now() }),
+    ...(options.defaultPublish
+      ? {}
+      : { publish: (event: Omit<NotificationEvent, 'at'> & { at?: number }) => published.push({ ...event, at: event.at ?? Date.now() }) }),
     log: () => {}
   });
 
@@ -149,6 +152,21 @@ describe('ChainWatcher', () => {
 
     expect(result.watched).toBe(0);
     expect(watcher.watchedWalletCount()).toBe(0);
+  });
+
+  it('publishes through the shared notification service by default', async () => {
+    const { watcher, emit, scriptsByTx } = setup({ defaultPublish: true });
+    const received: NotificationEvent[] = [];
+    const unsubscribe = notificationService.subscribe('wallet-a', event => received.push(event));
+
+    await watcher.watchWallet('wallet-a');
+    scriptsByTx.set('tx-default-publish', { inputs: ['ff'.repeat(10)], outputs: [SCRIPT_A] });
+    emit(txMessage('tx-default-publish'));
+
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    expect(received[0]).toMatchObject({ type: 'wallet.activity', walletId: 'wallet-a', direction: 'received' });
+
+    unsubscribe();
   });
 
   it('returns zero for unknown wallets', async () => {

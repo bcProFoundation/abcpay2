@@ -50,7 +50,11 @@ export class ChainWatcher {
   constructor(private deps: ChainWatcherDeps) {}
 
   private publish(event: Omit<NotificationEvent, 'at'> & { at?: number }) {
-    (this.deps.publish ?? notificationService.publish)(event);
+    if (this.deps.publish) {
+      this.deps.publish(event);
+      return;
+    }
+    notificationService.publish(event);
   }
 
   private log(message: string) {
@@ -59,7 +63,12 @@ export class ChainWatcher {
 
   private createChainState(chain: SupportedChain): ChainState {
     const state: ChainState = {
-      ws: this.deps.createWs(chain, msg => void this.handleMessage(chain, msg)),
+      ws: this.deps.createWs(chain, msg => {
+        // A watcher bug must never take the API down.
+        this.handleMessage(chain, msg).catch(err =>
+          this.log(`chain watcher handler failed (${chain}): ${(err as Error).message}`)
+        );
+      }),
       addresses: new Map(),
       scriptIndex: new Map()
     };
