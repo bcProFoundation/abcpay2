@@ -17,15 +17,20 @@ LABEL="${1:-rolling}"
 mkdir -p "$BACKUP_DIR"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 FILE="$BACKUP_DIR/${LABEL}-${STAMP}.dump"
+TMP_FILE="$(mktemp "$BACKUP_DIR/.pg-backup.XXXXXX")"
+trap 'rm -f "$TMP_FILE" "$TMP_FILE.verify"' EXIT
 
 echo "[$(date -u +%FT%TZ)] dumping $DB from $CONTAINER -> $FILE"
-docker exec "$CONTAINER" pg_dump -U "$DB_USER" -Fc "$DB" > "$FILE"
+docker exec "$CONTAINER" pg_dump -U "$DB_USER" -Fc "$DB" > "$TMP_FILE"
 
-if ! docker exec -i "$CONTAINER" pg_restore -l < "$FILE" > /dev/null 2>"$FILE.verify"; then
+if ! docker exec -i "$CONTAINER" pg_restore -l < "$TMP_FILE" > /dev/null 2>"$TMP_FILE.verify"; then
+  cp "$TMP_FILE.verify" "$FILE.verify" 2>/dev/null || true
   echo "[$(date -u +%FT%TZ)] VERIFY FAILED (see $FILE.verify)" >&2
   exit 1
 fi
-rm -f "$FILE.verify"
+rm -f "$TMP_FILE.verify"
+mv "$TMP_FILE" "$FILE"
+trap - EXIT
 echo "[$(date -u +%FT%TZ)] ok ($(du -h "$FILE" | cut -f1))"
 
 if [ "$LABEL" = "rolling" ]; then

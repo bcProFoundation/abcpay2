@@ -250,6 +250,36 @@ describe('coinselect and tx', () => {
     ).toThrow(/No spendable balance/);
   });
 
+  it('picks the most valuable input subset for max send', () => {
+    const result = computeMaxSend({
+      coin: 'xec',
+      utxos: [
+        { txid: 'aa'.repeat(32), vout: 0, satoshis: 1_000, address: 'dummy' },
+        { txid: 'bb'.repeat(32), vout: 1, satoshis: 100, address: 'dummy' }
+      ]
+    });
+    expect(result.inputs).toHaveLength(1);
+    expect(result.amount).toBe(616);
+  });
+
+  it('never prices a transaction below the minimum relay fee', () => {
+    const selection = selectUtxos({
+      coin: 'xec',
+      amount: 5_000,
+      feePerKb: 1,
+      utxos: [{ txid: 'aa'.repeat(32), vout: 0, satoshis: 10_000, address: 'dummy' }]
+    });
+    expect(selection.fee).toBe(226);
+
+    const max = computeMaxSend({
+      coin: 'xec',
+      feePerKb: 1,
+      utxos: [{ txid: 'aa'.repeat(32), vout: 0, satoshis: 5_000, address: 'dummy' }]
+    });
+    expect(max.fee).toBe(192);
+    expect(max.amount).toBe(4_808);
+  });
+
   it('signs and serializes a P2PKH XEC transaction', () => {
     const creds = createCredentials({ coin: 'xec', mnemonic: MNEMONIC });
     const derived = deriveWalletAddress({
@@ -310,9 +340,12 @@ describe('coinselect and tx', () => {
 
     const sighash = sighashForInput(tx, 0);
     const pubkey = derivePublicKey(creds.xPubKey, derived.path);
-    expect(verifyInputSignature(signed.signatures[0], sighash, pubkey)).toBe(true);
+    expect(verifyInputSignature(signed.signatures[0], sighash, pubkey, 'xec')).toBe(true);
+    const wrongSighashType = signed.signatures[0].slice(0, -2) + '01';
+    expect(verifyInputSignature(wrongSighashType, sighash, pubkey)).toBe(true);
+    expect(verifyInputSignature(wrongSighashType, sighash, pubkey, 'xec')).toBe(false);
     const tampered = signed.signatures[0].slice(0, -4) + 'ffff';
-    expect(verifyInputSignature(tampered, sighash, pubkey)).toBe(false);
+    expect(verifyInputSignature(tampered, sighash, pubkey, 'xec')).toBe(false);
   });
 });
 

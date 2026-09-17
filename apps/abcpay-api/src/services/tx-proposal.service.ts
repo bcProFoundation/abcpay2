@@ -9,6 +9,7 @@ import {
   deriveWalletAddress,
   dustThreshold,
   estimateTxSize,
+  minRelayFeePerKb,
   relativePath,
   selectUtxos,
   validateAddress
@@ -80,7 +81,10 @@ export class TxProposalService {
     }
 
     let amount = proposal.outputs.reduce((sum, o) => sum + o.amount, 0);
-    const feePerKb = proposal.feePerKb ?? defaultFeePerKb(wallet.coin as SupportedCoin);
+    const feePerKb = Math.max(
+      minRelayFeePerKb(wallet.coin as SupportedCoin),
+      proposal.feePerKb ?? defaultFeePerKb(wallet.coin as SupportedCoin)
+    );
     const walletCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
     let inputs = proposal.inputs as ProposalInput[] | undefined;
     let changeAddress = proposal.changeAddress;
@@ -148,6 +152,8 @@ export class TxProposalService {
       const change = totalIn - amount - fee;
       if (change < 0) throw new Error('Insufficient funds');
       if (change < dust) {
+        // The omitted change becomes part of the fee, so report the actual fee.
+        fee = totalIn - amount;
         changeAddress = undefined;
       } else if (!changeAddress) {
         const alternate = await walletService.createAddress(walletId, true);
@@ -276,7 +282,7 @@ export class TxProposalService {
       const actions = [
         ...((proposal.actions as Array<Record<string, unknown>>) ?? []),
         {
-          type: 'reject',
+          type: 'broadcast_error',
           copayerId,
           copayerName: copayer?.name ?? copayerId,
           comment: `Broadcast failed: ${(err as Error).message}`,

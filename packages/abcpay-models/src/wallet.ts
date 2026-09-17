@@ -204,7 +204,7 @@ export const txProposalSchema = z.object({
   raw: z.string().optional(),
   actions: z.array(
     z.object({
-      type: z.enum(['accept', 'reject']),
+      type: z.enum(['accept', 'reject', 'broadcast_error']),
       copayerId: z.string(),
       copayerName: z.string(),
       comment: z.string().optional(),

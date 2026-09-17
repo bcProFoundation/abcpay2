@@ -26,8 +26,23 @@ if [ ! -f "$REPO_DIR/apps/abcpay-web/dist/index.html" ]; then
   exit 1
 fi
 
-PG_PASSWORD="$(grep '^POSTGRES_PASSWORD=' "$PG_ENV" | cut -d= -f2)"
-DATABASE_URL="postgresql://abcpay:${PG_PASSWORD}@${PI_IP}:${PG_PORT}/abcpay"
+urlencode() {
+  local string="$1" encoded="" char hex i
+  for ((i = 0; i < ${#string}; i++)); do
+    char="${string:i:1}"
+    case "$char" in
+      [a-zA-Z0-9.~_-]) encoded+="$char" ;;
+      *)
+        printf -v hex '%%%02X' "'$char"
+        encoded+="$hex"
+        ;;
+    esac
+  done
+  printf '%s' "$encoded"
+}
+
+PG_PASSWORD="$(sed -n 's/^POSTGRES_PASSWORD=//p' "$PG_ENV")"
+DATABASE_URL="postgresql://abcpay:$(urlencode "$PG_PASSWORD")@${PI_IP}:${PG_PORT}/abcpay"
 
 docker network inspect "$NET" >/dev/null 2>&1 || docker network create "$NET" >/dev/null
 docker rm -f abcpay-api abcpay-web >/dev/null 2>&1 || true
@@ -47,13 +62,20 @@ docker run -d --name abcpay-web --restart unless-stopped --network "$NET" -p 808
   node:26-alpine node scripts/lan-web-server.js
 
 echo "==> waiting for API health"
+api_healthy=0
 for i in $(seq 1 180); do
   if docker exec abcpay-api node -e "fetch('http://127.0.0.1:3232/bws/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" >/dev/null 2>&1; then
     echo "api healthy after ${i}s"
+    api_healthy=1
     break
   fi
   sleep 1
 done
+if [ "$api_healthy" -ne 1 ]; then
+  echo "API did not become healthy; recent logs:" >&2
+  docker logs --tail 50 abcpay-api >&2 || true
+  exit 1
+fi
 
 docker ps --filter name=abcpay --format '{{.Names}} {{.Status}} {{.Ports}}'
 echo "web:  http://${PI_IP}:8080"

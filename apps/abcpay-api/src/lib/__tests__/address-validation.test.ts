@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { decodeAddress, deriveWalletAddress, encodeHashAddress } from '@bcpros/abcpay-wallet-core';
 import { addressMatchesDerivation, scriptKey } from '../address-validation';
 
 const XPUB_899_1OF1 =
@@ -39,6 +40,20 @@ describe('addressMatchesDerivation', () => {
   it('rejects unparseable paths and addresses', () => {
     expect(matches('nonsense', ADDR_M00)).toBe(false);
     expect(matches('m/0/0', 'not-an-address')).toBe(false);
+  });
+
+  it('rejects the opposite-network encoding of a valid script', () => {
+    const derived = deriveWalletAddress({
+      coin: 'xec',
+      xPubKeys: [XPUB_899_1OF1],
+      m: 1,
+      n: 1,
+      path: 'm/0/0'
+    });
+    const decoded = decodeAddress('xec', derived.address);
+    const testnetAddress = encodeHashAddress('xec', decoded.type, decoded.hash, 'testnet');
+    expect(matches('m/0/0', derived.address)).toBe(true);
+    expect(matches('m/0/0', testnetAddress)).toBe(false);
   });
 });
 

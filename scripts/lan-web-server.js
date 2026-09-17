@@ -1,10 +1,13 @@
 const http = require('node:http');
+const https = require('node:https');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const PORT = Number(process.env.PORT || 8080);
 const DIST = process.env.WEB_DIST || path.join(__dirname, '..', 'apps', 'abcpay-web', 'dist');
 const API_ORIGIN = process.env.API_ORIGIN || 'http://127.0.0.1:3232';
+const TLS_CERT = process.env.TLS_CERT;
+const TLS_KEY = process.env.TLS_KEY;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -42,33 +45,53 @@ function proxy(req, res) {
   req.pipe(proxyReq);
 }
 
-http
-  .createServer((req, res) => {
-    if (req.url.startsWith('/bws/')) return proxy(req, res);
+function handleRequest(req, res) {
+  if (req.url.startsWith('/bws/')) return proxy(req, res);
 
-    const requestPath = decodeURIComponent((req.url || '/').split('?')[0]);
-    let filePath = path.join(DIST, requestPath);
-    if (!filePath.startsWith(DIST)) {
-      res.writeHead(403);
-      res.end();
-      return;
-    }
+  let requestPath;
+  try {
+    requestPath = decodeURIComponent((req.url || '/').split('?')[0]);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('Bad request');
+    return;
+  }
 
-    fs.stat(filePath, (err, stat) => {
-      if (err || stat.isDirectory()) filePath = path.join(DIST, 'index.html');
-      fs.readFile(filePath, (readErr, data) => {
-        if (readErr) {
-          res.writeHead(404, { 'Content-Type': 'text/plain' });
-          res.end('Not found');
-          return;
-        }
-        res.writeHead(200, {
-          'Content-Type': MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream'
-        });
-        res.end(data);
+  let filePath = path.join(DIST, requestPath);
+  const relative = path.relative(DIST, filePath);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    res.writeHead(403);
+    res.end();
+    return;
+  }
+
+  fs.stat(filePath, (err, stat) => {
+    if (err || stat.isDirectory()) filePath = path.join(DIST, 'index.html');
+    fs.readFile(filePath, (readErr, data) => {
+      if (readErr) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not found');
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream'
       });
+      res.end(data);
     });
-  })
-  .listen(PORT, '0.0.0.0', () => {
-    console.log(`abcpay lan web on :${PORT} dist=${DIST} api=${API_ORIGIN}`);
   });
+}
+
+if (TLS_CERT && TLS_KEY) {
+  https
+    .createServer({ cert: fs.readFileSync(TLS_CERT), key: fs.readFileSync(TLS_KEY) }, handleRequest)
+    .listen(PORT, '0.0.0.0', () => {
+      console.log(`abcpay lan web on https://0.0.0.0:${PORT} dist=${DIST} api=${API_ORIGIN}`);
+    });
+} else {
+  console.warn(
+    'abcpay lan web: serving over plain HTTP. Use TLS_CERT/TLS_KEY or terminate TLS in front of this server before exposing it outside a trusted LAN.'
+  );
+  http.createServer(handleRequest).listen(PORT, '0.0.0.0', () => {
+    console.log(`abcpay lan web on http://0.0.0.0:${PORT} dist=${DIST} api=${API_ORIGIN}`);
+  });
+}

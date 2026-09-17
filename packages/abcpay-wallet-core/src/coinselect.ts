@@ -49,24 +49,35 @@ export function computeMaxSend(opts: {
   n?: number;
   outputCount?: number;
 }): MaxSendResult {
-  const feePerKb = opts.feePerKb ?? defaultFeePerKb(opts.coin);
+  const feePerKb = Math.max(minRelayFeePerKb(opts.coin), opts.feePerKb ?? defaultFeePerKb(opts.coin));
   const dust = dustThreshold(opts.coin);
-  const inputs = opts.utxos.filter(isSpendableUtxo);
-  if (inputs.length === 0) {
+  const outputCount = opts.outputCount ?? 1;
+  const candidates = opts.utxos.filter(isSpendableUtxo).sort((a, b) => b.satoshis - a.satoshis);
+  if (candidates.length === 0) {
     throw new Error('No spendable balance: all funds are locked or token-bearing');
   }
 
-  const totalInput = inputs.reduce((sum, utxo) => sum + utxo.satoshis, 0);
-  const size = estimateTxSize(inputs.length, opts.outputCount ?? 1, opts.n ?? 1, opts.m ?? 1);
-  const fee = Math.max(1, Math.ceil((size * feePerKb) / 1000));
-  const amount = totalInput - fee;
-  if (amount < dust) {
+  // Fee grows with the input count, so including a small input can reduce the
+  // amount actually sent. The optimum is a prefix of the descending list.
+  let best: MaxSendResult | undefined;
+  let totalInput = 0;
+  for (let count = 1; count <= candidates.length; count++) {
+    totalInput += candidates[count - 1].satoshis;
+    const size = estimateTxSize(count, outputCount, opts.n ?? 1, opts.m ?? 1);
+    const fee = Math.max(1, Math.ceil((size * feePerKb) / 1000));
+    const amount = totalInput - fee;
+    if (!best || amount > best.amount) {
+      best = { inputs: candidates.slice(0, count), amount, fee, totalInput };
+    }
+  }
+
+  if (!best || best.amount < dust) {
     throw new Error(
-      `Cannot send max: spendable ${totalInput} sats minus ${fee} sats of fee is below the dust limit`
+      `Cannot send max: best amount ${best?.amount ?? 0} sats is below the dust limit after fees`
     );
   }
 
-  return { inputs, amount, fee, totalInput };
+  return best;
 }
 
 export function selectUtxos(opts: {
@@ -78,8 +89,8 @@ export function selectUtxos(opts: {
   n?: number;
   outputCount?: number;
 }): CoinSelectResult {
-  const feePerKb = opts.feePerKb ?? defaultFeePerKb(opts.coin);
-  const minFeePerKb = Math.min(minRelayFeePerKb(opts.coin), feePerKb);
+  const feePerKb = Math.max(minRelayFeePerKb(opts.coin), opts.feePerKb ?? defaultFeePerKb(opts.coin));
+  const minFeePerKb = minRelayFeePerKb(opts.coin);
   const dust = dustThreshold(opts.coin);
   const sorted = opts.utxos.filter(isSpendableUtxo).sort((a, b) => b.satoshis - a.satoshis);
   const selected: SelectableUtxo[] = [];

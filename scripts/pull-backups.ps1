@@ -18,6 +18,9 @@ New-Item -ItemType Directory -Force -Path $Dest | Out-Null
 
 Write-Output "pulling dumps from ${PiUser}@${PiHost}:$RemoteDir to $Dest"
 scp -i $Key -o BatchMode=yes "${PiUser}@${PiHost}:$RemoteDir/*.dump" "$Dest\"
+if ($LASTEXITCODE -ne 0) {
+  throw "scp failed with exit code $LASTEXITCODE"
+}
 
 Get-ChildItem -Path $Dest -Filter 'rolling-*.dump' |
   Sort-Object LastWriteTime -Descending |
