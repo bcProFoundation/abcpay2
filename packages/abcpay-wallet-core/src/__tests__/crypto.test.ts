@@ -14,9 +14,11 @@ import {
   selectUtxos,
   signAndAssemble,
   signRequest,
+  sighashForInput,
   sortPublicKeys,
   summarizeUtxos,
   validateAddress,
+  verifyInputSignature,
   verifyRequest
 } from '../index';
 
@@ -287,25 +289,30 @@ describe('coinselect and tx', () => {
     expect(signed.raw.length).toBeGreaterThan(200);
     expect(signed.txid).toHaveLength(64);
     expect(signed.signatures).toHaveLength(1);
-    const assembled = assembleTxHex(
-      {
-        coin: 'xec',
-        inputs: [
-          {
-            txid: '11'.repeat(32),
-            vout: 0,
-            satoshis: 100_000,
-            address: derived.address,
-            path: derived.path,
-            publicKeys: derived.publicKeys,
-            scriptPubKey: derived.scriptPubKey
-          }
-        ],
-        outputs: [{ address: dest.address, satoshis: 90_000 }]
-      },
-      [{ [derived.publicKeys[0]]: signed.signatures[0] }]
-    );
+
+    const tx = {
+      coin: 'xec' as const,
+      inputs: [
+        {
+          txid: '11'.repeat(32),
+          vout: 0,
+          satoshis: 100_000,
+          address: derived.address,
+          path: derived.path,
+          publicKeys: derived.publicKeys,
+          scriptPubKey: derived.scriptPubKey
+        }
+      ],
+      outputs: [{ address: dest.address, satoshis: 90_000 }]
+    };
+    const assembled = assembleTxHex(tx, [{ [derived.publicKeys[0]]: signed.signatures[0] }]);
     expect(assembled).toBe(signed.raw);
+
+    const sighash = sighashForInput(tx, 0);
+    const pubkey = derivePublicKey(creds.xPubKey, derived.path);
+    expect(verifyInputSignature(signed.signatures[0], sighash, pubkey)).toBe(true);
+    const tampered = signed.signatures[0].slice(0, -4) + 'ffff';
+    expect(verifyInputSignature(tampered, sighash, pubkey)).toBe(false);
   });
 });
 
