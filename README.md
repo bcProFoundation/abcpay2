@@ -7,7 +7,7 @@ Modern rebuild of AbcPay wallet + BWS backend, supporting **eCash (XEC)** and **
 ```
 ┌─────────────────────┐     BWS-compatible API     ┌─────────────────────┐
 │   abcpay-web        │ ◄────────────────────────► │   abcpay-api        │
-│   React + Vite      │                            │   Bun + Hono          │
+│   React + Vite      │                            │   Node + Hono         │
 │   (familiar UI)     │                            │   Drizzle + Postgres  │
 └─────────────────────┘                            └──────────┬──────────┘
                                                               │
@@ -22,7 +22,7 @@ Modern rebuild of AbcPay wallet + BWS backend, supporting **eCash (XEC)** and **
 | Component | Tech | Purpose |
 |-----------|------|---------|
 | `apps/abcpay-web` | React 19, Vite, Tailwind | Wallet UI (Home / Wallets / Scan tabs) |
-| `apps/abcpay-api` | Bun, Hono, Drizzle | BWS-compatible wallet coordination API |
+| `apps/abcpay-api` | Node, Hono, Drizzle | BWS-compatible wallet coordination API |
 | `packages/abcpay-models` | Zod | Shared types and validation |
 | `packages/abcpay-wallet-core` | chronik-client | Blockchain data via Chronik |
 
@@ -48,7 +48,6 @@ Modern rebuild of AbcPay wallet + BWS backend, supporting **eCash (XEC)** and **
 
 - **Node.js 26+** (enters Active LTS Oct 2026 — see `.nvmrc`)
 - **pnpm 9+**
-- **Bun 1.4.0** (pinned — API runtime)
 - **PostgreSQL 18** (Docker image in `docker-compose.yml`, or PGDG packages for native/cloud install)
 - Docker (optional — for Postgres via Compose)
 
@@ -82,8 +81,7 @@ Copy `.env.example` to `.env` and adjust Chronik URLs if needed.
 
 | Component | Version | Notes |
 |-----------|---------|--------|
-| Node.js | **26.x** (LTS from Oct 2026) | `.nvmrc`, `engines.node` |
-| Bun | **1.4.0** | API runtime; `engines.bun` |
+| Node.js | **26.x** (LTS from Oct 2026) | `.nvmrc`, `engines.node`; API runs under Node via `tsx` |
 | PostgreSQL | **18** | `postgres:18-alpine` in Compose; PGDG 18 for cloud/native |
 | React | **19.x** | Web UI |
 | pnpm | **9.10.0** | `packageManager` field |

@@ -15,7 +15,7 @@
   "terminals": [
     {
       "name": "abcpay-api",
-      "command": "cd apps/abcpay-api && bun run src/index.ts",
+      "command": "cd apps/abcpay-api && set -a && . ./.env && set +a && pnpm start",
       "description": "BWS API on http://localhost:3232/bws/api"
     },
     {
