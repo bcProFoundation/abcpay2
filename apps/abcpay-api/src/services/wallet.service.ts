@@ -302,6 +302,17 @@ export class WalletService {
     return db.select().from(addresses).where(eq(addresses.walletId, walletId));
   }
 
+  /** Chain watcher target: the chain plus every known address of the wallet. */
+  async getWatcherTarget(walletId: string) {
+    const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
+    if (!wallet) return null;
+    const rows = await db.select().from(addresses).where(eq(addresses.walletId, walletId));
+    return {
+      chain: chainFromCoin(wallet.coin as SupportedCoin),
+      addresses: rows.map(row => row.address)
+    };
+  }
+
   async getBalance(walletId: string) {
     const walletAddresses = await this.getWalletAddresses(walletId);
     if (walletAddresses.length === 0) {

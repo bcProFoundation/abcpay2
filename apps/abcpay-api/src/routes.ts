@@ -14,6 +14,7 @@ import { COPAYER_NOT_IN_WALLET, txProposalService } from './services/tx-proposal
 import { addressService } from './services/address.service';
 import { fiatService } from './services/fiat.service';
 import { notificationService } from './services/notification.service';
+import { chainWatcher } from './services/chain-watcher.service';
 import { authMiddleware } from './middleware/auth';
 import { config } from './config';
 
@@ -104,6 +105,7 @@ export function createApp() {
               isChange
             )
           : await walletService.createAddress(walletId, isChange);
+      void chainWatcher.addAddress(walletId, addr.address);
       return c.json(walletService.toAddressResponse(addr), 201);
     } catch (err) {
       return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
@@ -117,6 +119,7 @@ export function createApp() {
 
       const body = await c.req.json().catch(() => ({}));
       const addr = await walletService.createAddress(walletId, Boolean(body.isChange));
+      void chainWatcher.addAddress(walletId, addr.address);
       return c.json(
         walletService.toAddressResponse(
           addr,
@@ -203,10 +206,24 @@ export function createApp() {
       stream.onAbort(() => {
         unsubscribe();
         wakeUp();
+        void chainWatcher.unwatchWallet(walletId);
       });
 
       try {
-        await stream.writeSSE({ event: 'ready', data: JSON.stringify({ walletId, at: Date.now() }) });
+        const watch = await chainWatcher.watchWallet(walletId).catch(err => {
+          console.warn(`[cws] chain watch failed for ${walletId}: ${(err as Error).message}`);
+          return { watched: 0, chain: undefined };
+        });
+
+        if (stream.aborted || stream.closed) {
+          await chainWatcher.unwatchWallet(walletId);
+          return;
+        }
+
+        await stream.writeSSE({
+          event: 'ready',
+          data: JSON.stringify({ walletId, at: Date.now(), watching: watch.watched, chain: watch.chain })
+        });
 
         while (!stream.aborted && !stream.closed) {
           if (queue.length === 0) {

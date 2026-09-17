@@ -329,6 +329,11 @@ async function main() {
     const sse = await openSse('/v1/notifications/', { creds: cb, walletId: seed.id, identity: cb.copayerId });
     const ready = await sse.waitFor(event => event.type === 'ready');
     check('sse: stream ready for wallet', ready !== null, ready ? 'ready event received' : 'no ready event');
+    check(
+      'sse: chain watcher subscribed the wallet addresses',
+      ready !== null && Number(ready.watching) >= 1,
+      `watching=${ready?.watching} chain=${ready?.chain}`
+    );
 
     const created = await call('POST', '/v3/txproposals/', {
       body: {
