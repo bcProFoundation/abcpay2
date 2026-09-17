@@ -77,15 +77,20 @@ export function openChronikWs(
   });
 }
 
+export interface TxScriptMove {
+  script: string;
+  satoshis: number;
+}
+
 export interface TxScripts {
-  inputs: string[];
-  outputs: string[];
+  inputs: TxScriptMove[];
+  outputs: TxScriptMove[];
 }
 
 /**
- * Scripts involved in a tx, lowercased hex, split by input/output.
- * Chronik tx WebSocket messages only carry the txid, so the watcher resolves
- * which wallets are affected by matching these scripts.
+ * Scripts involved in a tx (lowercased hex) with their satoshi values, split by
+ * input/output. Chronik tx WebSocket messages only carry the txid, so the watcher
+ * resolves which wallets are affected, and for how much, by matching these scripts.
  */
 export async function getTxScripts(
   chain: SupportedChain,
@@ -93,14 +98,15 @@ export async function getTxScripts(
   config?: ChronikConfig
 ): Promise<TxScripts> {
   const tx = await getChronikClient(chain, config).tx(txid);
+  const toMove = (script: string | undefined, sats: number | bigint | undefined): TxScriptMove | null =>
+    script ? { script: script.toLowerCase(), satoshis: Number(sats ?? 0) } : null;
+
   const inputs = tx.inputs
-    .map(input => input.outputScript)
-    .filter((script): script is string => Boolean(script))
-    .map(script => script.toLowerCase());
+    .map(input => toMove(input.outputScript, input.sats))
+    .filter((move): move is TxScriptMove => move !== null);
   const outputs = tx.outputs
-    .map(output => output.outputScript)
-    .filter((script): script is string => Boolean(script))
-    .map(script => script.toLowerCase());
+    .map(output => toMove(output.outputScript, output.sats))
+    .filter((move): move is TxScriptMove => move !== null);
   return { inputs, outputs };
 }
 

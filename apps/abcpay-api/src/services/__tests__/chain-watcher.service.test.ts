@@ -47,7 +47,10 @@ function setup(options: { failOpen?: boolean; defaultPublish?: boolean } = {}) {
     'wallet-a': { chain: 'XEC', addresses: [ADDRESS_A] },
     'wallet-b': { chain: 'XEC', addresses: [ADDRESS_B] }
   };
-  const scriptsByTx = new Map<string, { inputs: string[]; outputs: string[] }>();
+  const scriptsByTx = new Map<
+    string,
+    { inputs: Array<{ script: string; satoshis: number }>; outputs: Array<{ script: string; satoshis: number }> }
+  >();
 
   let onMessage: ((msg: ChainWsMessage) => void) | undefined;
   const watcher = new ChainWatcher({
@@ -105,7 +108,10 @@ describe('ChainWatcher', () => {
     await watcher.watchWallet('wallet-a');
     await watcher.watchWallet('wallet-b');
 
-    scriptsByTx.set('tx-received', { inputs: ['ff'.repeat(10)], outputs: [SCRIPT_A] });
+    scriptsByTx.set('tx-received', {
+      inputs: [{ script: 'ff'.repeat(10), satoshis: 10_000 }],
+      outputs: [{ script: SCRIPT_A, satoshis: 2_500 }]
+    });
     emit(txMessage('tx-received'));
     await vi.waitFor(() => expect(published).toHaveLength(1));
     expect(published[0]).toMatchObject({
@@ -113,21 +119,45 @@ describe('ChainWatcher', () => {
       walletId: 'wallet-a',
       txid: 'tx-received',
       direction: 'received',
+      amount: 2_500,
       msgType: 'TX_ADDED_TO_MEMPOOL'
     });
 
-    scriptsByTx.set('tx-self-spend', { inputs: [SCRIPT_A], outputs: [SCRIPT_B] });
+    scriptsByTx.set('tx-self-spend', {
+      inputs: [{ script: SCRIPT_A, satoshis: 10_000 }],
+      outputs: [{ script: SCRIPT_B, satoshis: 4_000 }]
+    });
     emit(txMessage('tx-self-spend', 'TX_CONFIRMED'));
     await vi.waitFor(() => expect(published).toHaveLength(3));
-    expect(published[1]).toMatchObject({ walletId: 'wallet-a', direction: 'sent', msgType: 'TX_CONFIRMED' });
-    expect(published[2]).toMatchObject({ walletId: 'wallet-b', direction: 'received' });
+    expect(published[1]).toMatchObject({ walletId: 'wallet-a', direction: 'sent', amount: 10_000, msgType: 'TX_CONFIRMED' });
+    expect(published[2]).toMatchObject({ walletId: 'wallet-b', direction: 'received', amount: 4_000 });
+  });
+
+  it('nets change outputs when the same wallet spends and receives', async () => {
+    const { watcher, emit, published, scriptsByTx } = setup();
+    await watcher.watchWallet('wallet-a');
+
+    scriptsByTx.set('tx-with-change', {
+      inputs: [{ script: SCRIPT_A, satoshis: 10_000 }],
+      outputs: [
+        { script: 'cd'.repeat(10), satoshis: 6_000 },
+        { script: SCRIPT_A, satoshis: 3_500 }
+      ]
+    });
+    emit(txMessage('tx-with-change'));
+
+    await vi.waitFor(() => expect(published).toHaveLength(1));
+    expect(published[0]).toMatchObject({ walletId: 'wallet-a', direction: 'sent', amount: 6_500 });
   });
 
   it('ignores txs that touch no watched script', async () => {
     const { watcher, emit, published, scriptsByTx } = setup();
     await watcher.watchWallet('wallet-a');
 
-    scriptsByTx.set('tx-unrelated', { inputs: ['ab'.repeat(10)], outputs: ['cd'.repeat(10)] });
+    scriptsByTx.set('tx-unrelated', {
+      inputs: [{ script: 'ab'.repeat(10), satoshis: 1_000 }],
+      outputs: [{ script: 'cd'.repeat(10), satoshis: 1_000 }]
+    });
     emit(txMessage('tx-unrelated'));
 
     await new Promise(resolve => setTimeout(resolve, 20));
@@ -160,11 +190,14 @@ describe('ChainWatcher', () => {
     const unsubscribe = notificationService.subscribe('wallet-a', event => received.push(event));
 
     await watcher.watchWallet('wallet-a');
-    scriptsByTx.set('tx-default-publish', { inputs: ['ff'.repeat(10)], outputs: [SCRIPT_A] });
+    scriptsByTx.set('tx-default-publish', {
+      inputs: [{ script: 'ff'.repeat(10), satoshis: 5_000 }],
+      outputs: [{ script: SCRIPT_A, satoshis: 1_200 }]
+    });
     emit(txMessage('tx-default-publish'));
 
     await vi.waitFor(() => expect(received).toHaveLength(1));
-    expect(received[0]).toMatchObject({ type: 'wallet.activity', walletId: 'wallet-a', direction: 'received' });
+    expect(received[0]).toMatchObject({ type: 'wallet.activity', walletId: 'wallet-a', direction: 'received', amount: 1_200 });
 
     unsubscribe();
   });

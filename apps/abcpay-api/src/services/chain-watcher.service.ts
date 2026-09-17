@@ -19,7 +19,10 @@ export interface WatcherTarget {
 export interface ChainWatcherDeps {
   resolveWalletTarget: (walletId: string) => Promise<WatcherTarget | null>;
   createWs: (chain: SupportedChain, onMessage: (msg: ChainWsMessage) => void) => ChronikWsHandle;
-  getTxScripts: (chain: SupportedChain, txid: string) => Promise<{ inputs: string[]; outputs: string[] }>;
+  getTxScripts: (chain: SupportedChain, txid: string) => Promise<{
+    inputs: Array<{ script: string; satoshis: number }>;
+    outputs: Array<{ script: string; satoshis: number }>;
+  }>;
   publish?: (event: Omit<NotificationEvent, 'at'> & { at?: number }) => void;
   log?: (message: string) => void;
 }
@@ -256,7 +259,7 @@ export class ChainWatcher {
     const state = this.chains.get(chain);
     if (!state || state.addresses.size === 0) return;
 
-    let scripts: { inputs: string[]; outputs: string[] };
+    let scripts: { inputs: Array<{ script: string; satoshis: number }>; outputs: Array<{ script: string; satoshis: number }> };
     try {
       scripts = await this.deps.getTxScripts(chain, msg.txid);
     } catch (err) {
@@ -264,23 +267,30 @@ export class ChainWatcher {
       return;
     }
 
-    const touched = new Map<string, 'sent' | 'received'>();
-    for (const scriptHex of scripts.inputs) {
-      for (const walletId of state.scriptIndex.get(scriptHex) ?? []) touched.set(walletId, 'sent');
+    const touched = new Map<string, { received: number; spent: number }>();
+    for (const move of scripts.inputs) {
+      for (const walletId of state.scriptIndex.get(move.script) ?? []) {
+        const entry = touched.get(walletId) ?? { received: 0, spent: 0 };
+        entry.spent += move.satoshis;
+        touched.set(walletId, entry);
+      }
     }
-    for (const scriptHex of scripts.outputs) {
-      for (const walletId of state.scriptIndex.get(scriptHex) ?? []) {
-        if (!touched.has(walletId)) touched.set(walletId, 'received');
+    for (const move of scripts.outputs) {
+      for (const walletId of state.scriptIndex.get(move.script) ?? []) {
+        const entry = touched.get(walletId) ?? { received: 0, spent: 0 };
+        entry.received += move.satoshis;
+        touched.set(walletId, entry);
       }
     }
 
-    for (const [walletId, direction] of touched) {
+    for (const [walletId, { received, spent }] of touched) {
       this.publish({
         type: 'wallet.activity',
         walletId,
         txid: msg.txid,
         msgType: msg.msgType,
-        direction
+        direction: spent > 0 ? 'sent' : 'received',
+        amount: Math.abs(received - spent)
       });
     }
   }
