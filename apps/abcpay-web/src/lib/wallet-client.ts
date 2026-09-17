@@ -33,7 +33,7 @@ export function generateKeys(coin: SupportedCoin, n: number): WalletKeys {
 
   return {
     mnemonic: mnemonic.phrase,
-    xPrivKey: xPrivKey.toString(),
+    xPrivKey: accountKey.toString(),
     xPubKey: accountKey.hdPublicKey.toString(),
     requestPrivKey: requestKey.privateKey.toString(),
     requestPubKey: requestKey.hdPublicKey.publicKey.toString(),

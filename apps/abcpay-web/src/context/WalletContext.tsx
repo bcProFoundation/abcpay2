@@ -1,8 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { SupportedCoin, WalletResponse } from '@bcpros/abcpay-models';
-import { COIN_CONFIGS } from '@bcpros/abcpay-models';
+import { COIN_CONFIGS, defaultWalletCoinType } from '@bcpros/abcpay-models';
 import type { WalletCredentials } from '@bcpros/abcpay-wallet-core';
-import { getCredentials } from '../lib/credentials-store';
+import { createCredentials } from '@bcpros/abcpay-wallet-core';
+import { getCredentials, saveCredentials } from '../lib/credentials-store';
 import { getWalletBalance as getBalanceFromStored } from '../lib/bwc';
 import { api, type AuthContext } from '../lib/api';
 
@@ -53,6 +54,38 @@ function loadWallets(): LocalWallet[] {
   }
 }
 
+function accountXPrivFor(stored: {
+  coin: SupportedCoin;
+  keys: WalletCredentials;
+}, n: number): string | undefined {
+  const variant = stored.keys as WalletCredentials & { coinType?: number };
+  const candidates = Array.from(
+    new Set(
+      [
+        variant.coinType,
+        defaultWalletCoinType(stored.coin, n > 1),
+        stored.coin === 'xec' ? 1899 : undefined,
+        stored.coin === 'xec' ? 899 : undefined
+      ].filter((value): value is number => typeof value === 'number')
+    )
+  );
+  for (const coinType of candidates) {
+    try {
+      const account = createCredentials({
+        coin: stored.coin,
+        mnemonic: stored.keys.mnemonic,
+        isMultisig: n > 1,
+        usePurpose48: n > 1,
+        coinType
+      });
+      if (account.xPubKey === stored.keys.xPubKey) return account.xPrivKey;
+    } catch {
+      // try the next candidate
+    }
+  }
+  return undefined;
+}
+
 function parseStoredCredentials(walletId: string, wallets: LocalWallet[]): StoredCredentials | undefined {
   const raw = getCredentials(walletId);
   if (!raw) return undefined;
@@ -61,15 +94,27 @@ function parseStoredCredentials(walletId: string, wallets: LocalWallet[]): Store
       walletId: string;
       copayerId: string;
       coin: SupportedCoin;
+      m?: number;
+      n?: number;
       keys: WalletCredentials;
     };
     const wallet = wallets.find(w => w.id === walletId);
+    const coin = stored.coin ?? stored.keys.coin;
+    const n = wallet?.n ?? stored.n ?? 1;
+
+    // Older clients stored the root key as xPrivKey; signing must use the account key.
+    const accountXPriv = accountXPrivFor({ coin, keys: stored.keys }, n);
+    if (accountXPriv && accountXPriv !== stored.keys.xPrivKey) {
+      stored.keys.xPrivKey = accountXPriv;
+      saveCredentials(walletId, JSON.stringify({ ...stored, keys: { ...stored.keys } }));
+    }
+
     return {
       ...stored.keys,
       walletId,
       copayerId: stored.copayerId,
       copayerName: wallet?.copayerName ?? '',
-      coin: stored.coin ?? stored.keys.coin
+      coin
     };
   } catch {
     return undefined;
