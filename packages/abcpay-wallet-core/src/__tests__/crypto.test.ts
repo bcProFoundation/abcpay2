@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { encodeCashAddress } from 'ecashaddrjs';
 import {
   assembleTxHex,
   computeMaxSend,
@@ -79,6 +80,33 @@ describe('addresses', () => {
     expect(decodeAddress('xec', legacyPrefixless).hashHex).toBe(
       decodeAddress('xec', prefixed).hashHex
     );
+  });
+
+  it('encodes XEC addresses with ecash/ectest prefixes only', () => {
+    const creds = createCredentials({ coin: 'xec', mnemonic: MNEMONIC });
+    const livenet = deriveWalletAddress({
+      coin: 'xec',
+      xPubKeys: [creds.xPubKey],
+      m: 1,
+      n: 1,
+      path: relativePath(false, 0)
+    });
+    const testnet = deriveWalletAddress({
+      coin: 'xec',
+      network: 'testnet',
+      xPubKeys: [creds.xPubKey],
+      m: 1,
+      n: 1,
+      path: relativePath(false, 0)
+    });
+    expect(livenet.address.startsWith('ecash:')).toBe(true);
+    expect(testnet.address.startsWith('ectest:')).toBe(true);
+    expect(livenet.address.includes('bitcoincash')).toBe(false);
+
+    // Legacy bitcoincash-prefixed input is tolerated for paste-in compatibility only.
+    const decoded = decodeAddress('xec', livenet.address);
+    const legacyBch = encodeCashAddress('bitcoincash', decoded.type, decoded.hashHex);
+    expect(decodeAddress('xec', legacyBch).hashHex).toBe(decoded.hashHex);
   });
 
   it('builds the same P2SH address regardless of copayer xpub order', () => {
