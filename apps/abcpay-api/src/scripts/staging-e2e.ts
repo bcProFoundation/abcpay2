@@ -13,7 +13,7 @@ import {
   type WalletCredentials
 } from '@bcpros/abcpay-wallet-core';
 
-const BASE = process.env.BWS_URL ?? 'http://127.0.0.1:3232/cws/api';
+const BASE = process.env.CWS_URL ?? process.env.BWS_URL ?? 'http://127.0.0.1:3232/cws/api';
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(
   readFileSync(
