@@ -34,6 +34,8 @@ Modern rebuild of the AbcPay wallet with the **Chronik Wallet Service (CWS)** â€
 - XEC and DOGE wallets only
 - m-of-n multisig shared wallets
 - Transaction proposal coordination (create, sign, reject, broadcast)
+- Live wallet updates over SSE (`proposal.created`, `proposal.signed`, `proposal.rejected`, `proposal.broadcast`, `wallet.joined`, `wallet.complete`, `wallet.activity`); the web keeps one signed stream per wallet, refreshes balances on events, and falls back to 8s polling if the stream drops
+- Push notifications for on-chain activity: while a wallet has an open stream, its known addresses are watched on Chronik WebSocket subscriptions (ref-counted, lazy per chain, auto-resubscribed on reconnect); incoming/outgoing txs are matched by script and pushed as `wallet.activity` with `direction` and `msgType` (`TX_ADDED_TO_MEMPOOL`, `TX_CONFIRMED`, `TX_FINALIZED`, ...)
 - Chronik-backed UTXO lookup and tx broadcast
 - SLP token awareness: token UTXOs are tagged, excluded from XEC spending and coin selection, and token balances are shown (token transfers not yet supported)
 - Postgres instead of MongoDB
@@ -107,6 +109,7 @@ Copy `.env.example` to `.env` and adjust Chronik URLs if needed.
 | POST | `/v1/broadcast_raw/` | Raw tx broadcast |
 | GET | `/v1/feelevels/` | Fee estimation |
 | GET | `/v3/fiatrates/:code/` | Fiat rates |
+| GET | `/v1/notifications/` | Live wallet events (SSE, signed like every other route) |
 
 ## Multisig Flow
 
@@ -122,8 +125,8 @@ Copy `.env.example` to `.env` and adjust Chronik URLs if needed.
 - [x] BWS-compatible request signature auth (`x-identity` / `x-signature`)
 - [x] CoinGecko fiat rates
 - [x] BWC-compatible API responses (`/v2/wallets/`, `/v4/addresses/`, etc.)
-- [ ] Full send flow with tx building and signing
-- [ ] WebSocket notifications for tx proposals
+- [x] Full send flow with tx building and signing
+- [x] Live wallet notifications over SSE for tx proposals
 - [ ] Capacitor mobile wrapper
 
 ## Related Repos

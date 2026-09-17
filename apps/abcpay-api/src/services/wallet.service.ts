@@ -18,6 +18,7 @@ import { addresses, copayerLookup, copayers, wallets } from '../db/schema';
 import { config } from '../config';
 import { formatWalletId } from '../lib/wallet-id';
 import { addressMatchesDerivation } from '../lib/address-validation';
+import { notificationService } from './notification.service';
 
 function generateWalletId(): string {
   const hex = randomBytes(16).toString('hex');
@@ -120,6 +121,20 @@ export class WalletService {
 
     if (status === 'complete') {
       await this.createAddress(walletId, false);
+    }
+
+    notificationService.publish({
+      type: 'wallet.joined',
+      walletId,
+      copayerId,
+      copayerName: req.name
+    });
+    if (status === 'complete') {
+      notificationService.publish({
+        type: 'wallet.complete',
+        walletId,
+        status: 'complete'
+      });
     }
 
     return { wallet: this.toWalletResponse(updated, updatedCopayers) };
@@ -285,6 +300,17 @@ export class WalletService {
 
   async getWalletAddresses(walletId: string) {
     return db.select().from(addresses).where(eq(addresses.walletId, walletId));
+  }
+
+  /** Chain watcher target: the chain plus every known address of the wallet. */
+  async getWatcherTarget(walletId: string) {
+    const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
+    if (!wallet) return null;
+    const rows = await db.select().from(addresses).where(eq(addresses.walletId, walletId));
+    return {
+      chain: chainFromCoin(wallet.coin as SupportedCoin),
+      addresses: rows.map(row => row.address)
+    };
   }
 
   async getBalance(walletId: string) {

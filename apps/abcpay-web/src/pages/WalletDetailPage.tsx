@@ -1,11 +1,15 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import type { TokenBalance, TxProposal, WalletResponse } from '@bcpros/abcpay-models';
 import { CoinBadge, MultisigBadge } from '../components/ui';
 import { useWallets } from '../context/WalletContext';
+import { useNotifications } from '../context/NotificationContext';
 import { api } from '../lib/api';
 import { broadcastProposal, signAndMaybeBroadcast } from '../lib/tx';
+
+const FALLBACK_POLL_MS = 8000;
+const LIVE_POLL_MS = 60000;
 
 function formatTokenAtoms(atoms: string, decimals?: number): string {
   try {
@@ -23,6 +27,7 @@ function formatTokenAtoms(atoms: string, decimals?: number): string {
 export function WalletDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { wallets, showBalance, authFor, credentialsFor, refreshBalances } = useWallets();
+  const { stateFor, subscribe } = useNotifications();
   const wallet = wallets.find(w => w.id === id);
   const [remote, setRemote] = useState<WalletResponse | null>(null);
   const [proposals, setProposals] = useState<TxProposal[]>([]);
@@ -32,28 +37,48 @@ export function WalletDetailPage() {
 
   const auth = id ? authFor(id) : undefined;
   const creds = id ? credentialsFor(id) : undefined;
+  const connectionState = id ? stateFor(id) : 'offline';
+
+  const loadSeqRef = useRef(0);
 
   async function load() {
     if (!auth) return;
+    const seq = ++loadSeqRef.current;
     try {
       const [w, p, balance] = await Promise.all([
         api.getWallet(auth),
         api.getTxProposals(auth),
         api.getBalance(auth)
       ]);
+      if (seq !== loadSeqRef.current) return;
       setRemote(w);
       setProposals(p.filter(item => item.status === 'pending' || item.status === 'accepted'));
       setTokens(balance.tokens ?? []);
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       setError((err as Error).message);
     }
   }
 
+  const copayerId = auth?.copayerId;
+
   useEffect(() => {
+    if (!id || !copayerId) return;
     void load();
-    const timer = window.setInterval(() => void load(), 8000);
+    return subscribe(id, event => {
+      void load();
+      if (event.type === 'proposal.broadcast') void refreshBalances();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, copayerId]);
+
+  useEffect(() => {
+    if (!id) return;
+    const interval = connectionState === 'connected' ? LIVE_POLL_MS : FALLBACK_POLL_MS;
+    const timer = window.setInterval(() => void load(), interval);
     return () => window.clearInterval(timer);
-  }, [id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, connectionState]);
 
   if (!wallet) {
     return (
@@ -138,8 +163,31 @@ export function WalletDetailPage() {
       )}
 
       <div className="mx-4 p-4 bg-[var(--abcpay-surface)] rounded-2xl mb-4">
-        <h3 className="font-medium mb-2">Status</h3>
-        <p className="text-sm capitalize text-[var(--abcpay-muted)]">{remote?.status ?? wallet.status}</p>
+        <div className="flex items-center justify-between">
+          <h3 className="font-medium">Status</h3>
+          <span
+            className="flex items-center gap-1.5 text-xs text-[var(--abcpay-muted)]"
+            title={
+              connectionState === 'connected'
+                ? 'Live updates connected'
+                : connectionState === 'connecting'
+                  ? 'Connecting to live updates…'
+                  : 'Live updates unavailable, falling back to polling'
+            }
+          >
+            <span
+              className={`inline-block w-2 h-2 rounded-full ${
+                connectionState === 'connected'
+                  ? 'bg-green-400'
+                  : connectionState === 'connecting'
+                    ? 'bg-yellow-400'
+                    : 'bg-red-400/70'
+              }`}
+            />
+            {connectionState === 'connected' ? 'Live' : connectionState === 'connecting' ? 'Connecting…' : 'Polling'}
+          </span>
+        </div>
+        <p className="text-sm capitalize text-[var(--abcpay-muted)] mt-2">{remote?.status ?? wallet.status}</p>
       </div>
 
       {proposals.length > 0 && creds && auth && (
