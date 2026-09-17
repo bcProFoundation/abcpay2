@@ -20,7 +20,7 @@ function isPublicPath(method: string, path: string): boolean {
 
 export async function authMiddleware(c: Context, next: Next) {
   const url = new URL(c.req.url);
-  const path = url.pathname.replace(/^\/bws\/api/, '') + url.search || '/';
+  const path = url.pathname.replace(/^\/(?:cws|bws)\/api/, '') + url.search || '/';
   const method = c.req.method;
 
   if (method === 'OPTIONS' || isPublicPath(method, path) || !config.requireAuth) {

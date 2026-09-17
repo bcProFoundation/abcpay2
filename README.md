@@ -1,14 +1,17 @@
 # AbcPay v2
 
-Modern rebuild of AbcPay wallet + BWS backend, supporting **eCash (XEC)** and **Dogecoin (DOGE)** only, powered by the **Chronik indexer**.
+Modern rebuild of the AbcPay wallet with the **Chronik Wallet Service (CWS)** — a coordination backend with a **BWS-compatible API** — supporting **eCash (XEC)** and **Dogecoin (DOGE)** only, powered by the **Chronik indexer**.
+
+> Naming: **CWS** is the service; **BWS-compatible** describes its API surface (routes, headers, payloads), which is kept for BWC tooling and legacy AbcPay v1 clients. The legacy `bitcore-wallet-service`/MongoDB stack is no longer involved.
 
 ## Architecture
 
 ```
 ┌─────────────────────┐     BWS-compatible API     ┌─────────────────────┐
-│   abcpay-web        │ ◄────────────────────────► │   abcpay-api        │
-│   React + Vite      │                            │   Node + Hono         │
-│   (familiar UI)     │                            │   Drizzle + Postgres  │
+│   abcpay-web        │ ◄────────────────────────► │   abcpay-api (CWS)  │
+│   React + Vite      │                            │   Node + Hono       │
+│   (familiar UI)     │                            │   Drizzle + Postgres│
+└─────────────────────┘                            └──────────┬──────────┘
 └─────────────────────┘                            └──────────┬──────────┘
                                                               │
                                                    ┌──────────▼──────────┐
@@ -22,7 +25,7 @@ Modern rebuild of AbcPay wallet + BWS backend, supporting **eCash (XEC)** and **
 | Component | Tech | Purpose |
 |-----------|------|---------|
 | `apps/abcpay-web` | React 19, Vite, Tailwind | Wallet UI (Home / Wallets / Scan tabs) |
-| `apps/abcpay-api` | Node, Hono, Drizzle | BWS-compatible wallet coordination API |
+| `apps/abcpay-api` | Node, Hono, Drizzle | Chronik Wallet Service (CWS) with a BWS-compatible API |
 | `packages/abcpay-models` | Zod | Shared types and validation |
 | `packages/abcpay-wallet-core` | chronik-client | Blockchain data via Chronik |
 
@@ -71,7 +74,7 @@ pnpm dev
 ```
 
 - **Web UI**: http://localhost:5173
-- **BWS API**: http://localhost:3232/bws/api
+- **CWS API**: http://localhost:3232/cws/api (legacy alias `/bws/api`)
 
 ### Environment
 
@@ -116,7 +119,7 @@ Copy `.env.example` to `.env` and adjust Chronik URLs if needed.
 
 - [x] Real HD key derivation via `@bcpros/crypto-wallet-core` + `@bcpros/bitcore-mnemonic`
 - [x] Receive flow with QR code and address generation
-- [x] BWS request signature auth (`x-identity` / `x-signature`)
+- [x] BWS-compatible request signature auth (`x-identity` / `x-signature`)
 - [x] CoinGecko fiat rates
 - [x] BWC-compatible API responses (`/v2/wallets/`, `/v4/addresses/`, etc.)
 - [ ] Full send flow with tx building and signing

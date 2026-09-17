@@ -23,7 +23,7 @@ export function RestorePage() {
       return;
     }
     if (!walletId.trim()) {
-      setError('Wallet ID is required to re-attach a BWS wallet');
+      setError('Wallet ID is required to re-attach an existing wallet');
       return;
     }
     setLoading(true);

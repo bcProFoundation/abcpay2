@@ -9,14 +9,14 @@
   "start": "bash scripts/cloud-start.sh",
   "ports": [
     { "name": "web", "port": 5173 },
-    { "name": "bws-api", "port": 3232 },
+    { "name": "cws-api", "port": 3232 },
     { "name": "postgres", "port": 5433 }
   ],
   "terminals": [
     {
       "name": "abcpay-api",
       "command": "cd apps/abcpay-api && set -a && . ./.env && set +a && pnpm start",
-      "description": "BWS API on http://localhost:3232/bws/api"
+      "description": "Chronik Wallet Service on http://localhost:3232/cws/api (BWS-compatible alias at /bws/api)"
     },
     {
       "name": "abcpay-web",

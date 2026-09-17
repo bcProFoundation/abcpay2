@@ -12,7 +12,7 @@ import type {
 } from '@bcpros/abcpay-models';
 import { signRequest } from '@bcpros/abcpay-wallet-core';
 
-const BWS_URL = import.meta.env.VITE_BWS_URL ?? '/bws/api';
+export const API_URL = import.meta.env.VITE_API_URL ?? import.meta.env.VITE_BWS_URL ?? '/cws/api';
 
 export interface AuthContext {
   walletId: string;
@@ -34,7 +34,7 @@ function headersFromAuth(auth: AuthContext): RequestHeaders {
   };
 }
 
-async function bwsFetch<T>(
+async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
   headers: RequestHeaders = {}
@@ -60,7 +60,7 @@ async function bwsFetch<T>(
     reqHeaders['x-signature'] = signRequest(headers.requestPrivKey, method, path, JSON.stringify(body));
   }
 
-  const res = await fetch(`${BWS_URL}${path}`, { ...options, headers: reqHeaders });
+  const res = await fetch(`${API_URL}${path}`, { ...options, headers: reqHeaders });
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
@@ -73,14 +73,14 @@ async function bwsFetch<T>(
 
 export const api = {
   createWallet(data: CreateWalletRequest): Promise<{ walletId: string; id?: string }> {
-    return bwsFetch('/v2/wallets/', { method: 'POST', body: JSON.stringify(data) });
+    return apiFetch('/v2/wallets/', { method: 'POST', body: JSON.stringify(data) });
   },
 
   joinWallet(
     walletId: string,
     data: Omit<JoinWalletRequest, 'walletId'>
   ): Promise<{ wallet: WalletResponse } | WalletResponse> {
-    return bwsFetch(`/v2/wallets/${walletId}/copayers`, {
+    return apiFetch(`/v2/wallets/${walletId}/copayers`, {
       method: 'POST',
       body: JSON.stringify({ ...data, walletId })
     });
@@ -90,18 +90,18 @@ export const api = {
     walletId: string,
     data: Omit<JoinWalletRequest, 'walletId'>
   ): Promise<{ dryRun: boolean; copayerExists: boolean }> {
-    return bwsFetch(`/v2/wallets/${walletId}/copayers`, {
+    return apiFetch(`/v2/wallets/${walletId}/copayers`, {
       method: 'POST',
       body: JSON.stringify({ ...data, walletId, dryRun: true })
     });
   },
 
   getWalletInfo(walletId: string): Promise<{ m: number; n: number; coin: SupportedCoin; status: string }> {
-    return bwsFetch(`/v1/wallets/${walletId}/info`);
+    return apiFetch(`/v1/wallets/${walletId}/info`);
   },
 
   getJoinInfo(walletId: string): Promise<JoinInfo> {
-    return bwsFetch(`/v1/wallets/${walletId}/join-info/`);
+    return apiFetch(`/v1/wallets/${walletId}/join-info/`);
   },
 
   getWallet(
@@ -114,7 +114,7 @@ export const api = {
       typeof authOrWalletId === 'string'
         ? { walletId: authOrWalletId, copayerId: copayerId!, requestPrivKey: requestPrivKey! }
         : headersFromAuth(authOrWalletId);
-    return bwsFetch<{ wallet: WalletResponse }>(path, {}, headers).then(res => res.wallet);
+    return apiFetch<{ wallet: WalletResponse }>(path, {}, headers).then(res => res.wallet);
   },
 
   createAddress(
@@ -140,7 +140,7 @@ export const api = {
           ? copayerIdOrIsChange
           : false;
 
-    return bwsFetch(
+    return apiFetch(
       '/v4/addresses/',
       {
         method: 'POST',
@@ -151,7 +151,7 @@ export const api = {
   },
 
   getMainAddress(auth: AuthContext): Promise<AddressResponse> {
-    return bwsFetch('/v1/addresses/main/', {}, headersFromAuth(auth));
+    return apiFetch('/v1/addresses/main/', {}, headersFromAuth(auth));
   },
 
   getBalance(
@@ -163,11 +163,11 @@ export const api = {
       typeof authOrWalletId === 'string'
         ? { walletId: authOrWalletId, copayerId: copayerId!, requestPrivKey: requestPrivKey! }
         : headersFromAuth(authOrWalletId);
-    return bwsFetch('/v1/balance/', {}, headers);
+    return apiFetch('/v1/balance/', {}, headers);
   },
 
   getUtxos(auth: AuthContext) {
-    return bwsFetch<
+    return apiFetch<
       Array<{
         txid: string;
         vout: number;
@@ -180,7 +180,7 @@ export const api = {
   },
 
   getHistory(auth: AuthContext): Promise<TxHistoryItem[]> {
-    return bwsFetch('/v1/txhistory/', {}, headersFromAuth(auth));
+    return apiFetch('/v1/txhistory/', {}, headersFromAuth(auth));
   },
 
   getTxProposals(
@@ -192,15 +192,15 @@ export const api = {
       typeof authOrWalletId === 'string'
         ? { walletId: authOrWalletId, copayerId: copayerId!, requestPrivKey: requestPrivKey! }
         : headersFromAuth(authOrWalletId);
-    return bwsFetch('/v1/txproposals/', {}, headers);
+    return apiFetch('/v1/txproposals/', {}, headers);
   },
 
   createTxProposal(auth: AuthContext, data: CreateTxProposalRequest): Promise<TxProposal> {
-    return bwsFetch('/v3/txproposals/', { method: 'POST', body: JSON.stringify(data) }, headersFromAuth(auth));
+    return apiFetch('/v3/txproposals/', { method: 'POST', body: JSON.stringify(data) }, headersFromAuth(auth));
   },
 
   signTxProposal(auth: AuthContext, id: string, signatures: string[]): Promise<TxProposal> {
-    return bwsFetch(
+    return apiFetch(
       `/v1/txproposals/${id}/signatures/`,
       { method: 'POST', body: JSON.stringify({ signatures }) },
       headersFromAuth(auth)
@@ -208,7 +208,7 @@ export const api = {
   },
 
   rejectTxProposal(auth: AuthContext, id: string, reason?: string): Promise<TxProposal> {
-    return bwsFetch(
+    return apiFetch(
       `/v1/txproposals/${id}/rejections/`,
       { method: 'POST', body: JSON.stringify({ reason }) },
       headersFromAuth(auth)
@@ -216,7 +216,7 @@ export const api = {
   },
 
   broadcastTxProposal(auth: AuthContext, id: string, raw: string): Promise<TxProposal> {
-    return bwsFetch(
+    return apiFetch(
       `/v1/txproposals/${id}/broadcast/`,
       { method: 'POST', body: JSON.stringify({ raw }) },
       headersFromAuth(auth)
@@ -224,10 +224,10 @@ export const api = {
   },
 
   getFiatRate(coin: SupportedCoin): Promise<{ rate: number; fetchedOn: number }> {
-    return bwsFetch(`/v3/fiatrates/${coin}/`);
+    return apiFetch(`/v3/fiatrates/${coin}/`);
   },
 
   getFeeLevels(coin: SupportedCoin) {
-    return bwsFetch(`/v2/feelevels/?coin=${coin}`);
+    return apiFetch(`/v2/feelevels/?coin=${coin}`);
   }
 };

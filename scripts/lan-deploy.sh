@@ -64,7 +64,7 @@ docker run -d --name abcpay-web --restart unless-stopped --network "$NET" -p 808
 echo "==> waiting for API health"
 api_healthy=0
 for i in $(seq 1 180); do
-  if docker exec abcpay-api node -e "fetch('http://127.0.0.1:3232/bws/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" >/dev/null 2>&1; then
+  if docker exec abcpay-api node -e "fetch('http://127.0.0.1:3232/cws/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" >/dev/null 2>&1; then
     echo "api healthy after ${i}s"
     api_healthy=1
     break
@@ -79,4 +79,4 @@ fi
 
 docker ps --filter name=abcpay --format '{{.Names}} {{.Status}} {{.Ports}}'
 echo "web:  http://${PI_IP}:8080"
-echo "api:  http://${PI_IP}:3232/bws/api"
+echo "api:  http://${PI_IP}:3232/cws/api (legacy alias /bws/api)"
