@@ -169,6 +169,37 @@ describe('coinselect and tx', () => {
     expect(result.inputs.length).toBeGreaterThan(0);
   });
 
+  it('donates dust change to the fee instead of rejecting', () => {
+    const result = selectUtxos({
+      coin: 'xec',
+      amount: 546,
+      utxos: [{ txid: 'aa'.repeat(32), vout: 0, satoshis: 1_000, address: 'dummy' }]
+    });
+    expect(result.inputs).toHaveLength(1);
+    expect(result.change).toBe(0);
+    expect(result.fee).toBe(454);
+  });
+
+  it('accepts small balances when the effective fee still meets the relay minimum', () => {
+    const result = selectUtxos({
+      coin: 'xec',
+      amount: 700,
+      utxos: [{ txid: 'aa'.repeat(32), vout: 0, satoshis: 1_000, address: 'dummy' }]
+    });
+    expect(result.change).toBe(0);
+    expect(result.fee).toBe(300);
+  });
+
+  it('rejects when the remainder cannot cover the minimum relay fee', () => {
+    expect(() =>
+      selectUtxos({
+        coin: 'xec',
+        amount: 950,
+        utxos: [{ txid: 'aa'.repeat(32), vout: 0, satoshis: 1_000, address: 'dummy' }]
+      })
+    ).toThrow(/Insufficient funds: available 1000 sats, need 950/);
+  });
+
   it('signs and serializes a P2PKH XEC transaction', () => {
     const creds = createCredentials({ coin: 'xec', mnemonic: MNEMONIC });
     const derived = deriveWalletAddress({

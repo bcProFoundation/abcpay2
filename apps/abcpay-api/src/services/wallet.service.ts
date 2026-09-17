@@ -17,6 +17,7 @@ import { db } from '../db';
 import { addresses, copayerLookup, copayers, wallets } from '../db/schema';
 import { config } from '../config';
 import { formatWalletId } from '../lib/bws-utils';
+import { addressMatchesDerivation } from '../lib/address-validation';
 
 function generateWalletId(): string {
   const hex = randomBytes(16).toString('hex');
@@ -241,6 +242,22 @@ export class WalletService {
   ) {
     const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
     if (!wallet) throw new Error('Wallet not found');
+
+    const walletCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
+    const ring = walletCopayers.map(c => c.xPubKey);
+    if (ring.length > 0) {
+      if (!path) throw new Error('Address path is required');
+      const matches = addressMatchesDerivation({
+        coin: wallet.coin as SupportedCoin,
+        network: wallet.network as 'livenet' | 'testnet',
+        xPubKeys: ring,
+        m: wallet.m,
+        n: wallet.n,
+        path,
+        address
+      });
+      if (!matches) throw new Error('Address does not match the wallet derivation');
+    }
 
     const [existing] = await db
       .select()

@@ -53,7 +53,11 @@ export function SendPage() {
       if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) throw new Error('Invalid amount');
       const satoshis = toSatoshis(wallet.coin, parsedAmount);
       const dust = dustThreshold(wallet.coin);
-      if (satoshis < dust) throw new Error(`Amount is below the dust threshold (${dust} sats)`);
+      if (satoshis < dust) {
+        throw new Error(
+          `Minimum payment is ${(dust / config.unitToSatoshi).toFixed(config.unitDecimals)} ${config.unitName} (dust limit)`
+        );
+      }
 
       const { proposal, txid: broadcastTxid } = await createAndSendPayment({
         auth,

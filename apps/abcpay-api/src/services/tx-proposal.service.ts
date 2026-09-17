@@ -6,6 +6,8 @@ import {
   chainFromCoin,
   defaultFeePerKb,
   deriveWalletAddress,
+  dustThreshold,
+  estimateTxSize,
   relativePath,
   selectUtxos,
   validateAddress
@@ -113,13 +115,17 @@ export class TxProposalService {
         };
       });
       const totalIn = inputs.reduce((sum, i) => sum + i.satoshis, 0);
-      const outputSum = proposal.outputs.reduce((sum, o) => sum + o.amount, 0);
-      fee = totalIn - outputSum;
-      if (changeAddress) {
-        // payment outputs only; remaining after fee is change — client already accounted for fee
-        fee = Math.max(0, fee);
+      const size = estimateTxSize(inputs.length, proposal.outputs.length + 1, wallet.n, wallet.m);
+      fee = Math.max(1, Math.ceil((size * feePerKb) / 1000));
+      const dust = dustThreshold(wallet.coin as SupportedCoin);
+      const change = totalIn - amount - fee;
+      if (change < 0) throw new Error('Insufficient funds');
+      if (change < dust) {
+        changeAddress = undefined;
+      } else if (!changeAddress) {
+        const alternate = await walletService.createAddress(walletId, true);
+        changeAddress = { address: alternate.address, path: alternate.path };
       }
-      if (fee < 0) throw new Error('Outputs exceed inputs');
     }
 
     const proposalId = generateId();
