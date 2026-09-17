@@ -38,7 +38,7 @@ docker run -d --name abcpay-api --restart unless-stopped --network "$NET" -p 323
   -v abcpay-pnpm-store:/root/.local/share/pnpm/store \
   -w /app/apps/abcpay-api \
   -e DATABASE_URL="$DATABASE_URL" -e PORT=3232 -e REQUIRE_AUTH=1 \
-  node:26-bookworm sh -c 'corepack enable >/dev/null 2>&1 || true; cd /app && { [ -x apps/abcpay-api/node_modules/.bin/tsx ] || pnpm install --frozen-lockfile --ignore-scripts; } && cd apps/abcpay-api && exec ./node_modules/.bin/tsx src/index.ts'
+  node:26-bookworm sh -c 'command -v pnpm >/dev/null 2>&1 || npm install -g pnpm@9.10.0 --silent --no-fund --no-audit; cd /app && { [ -x apps/abcpay-api/node_modules/.bin/tsx ] || pnpm install --frozen-lockfile --ignore-scripts; } && cd apps/abcpay-api && exec ./node_modules/.bin/tsx src/index.ts'
 
 echo "==> starting web container"
 docker run -d --name abcpay-web --restart unless-stopped --network "$NET" -p 8080:8080 \
