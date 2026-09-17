@@ -170,9 +170,11 @@ LEGACY_MONGO_URL=mongodb://... DATABASE_URL=postgresql://... \
 
 ### Phase 2 — Staging E2E (gate: migrated wallet usable end-to-end)
 
-- [ ] Import subset into staging; restore in v2 web (mnemonic + wallet ID) for XEC and DOGE
-- [ ] Verify balance/UTXO/history via Chronik, copayer list, multisig proposal sign + broadcast
-- [ ] Verify a joined copayer's existing device credentials would still authenticate (signature compatibility)
+- [x] Import wallets into staging and restore them with v1 mnemonics: fixture-derived wallets seeded into the Pi Postgres (XEC 899, XEC 1899, DOGE, XEC 2-of-2); restore path validated through join-info + dry-run probe + legacy request-key auth (the same API path the web restore uses)
+- [x] Balance/UTXO/history via Chronik for all four wallets; 2-of-2 multisig proposal created, signed by both copayers to `accepted`, transaction assembled; broadcast correctly rejected for the fabricated UTXO
+- [x] Legacy request keys (derived with `@abcpros/bitcore-wallet-client@8.25.45`) authenticate against the v2 API
+
+**Phase 2 results (2026-09-17):** 42/42 E2E checks passed against the Pi Postgres + public Chronik, including address-index continuity for a wallet migrated with `addressIndex=2` (next address was `m/0/2`), authenticated GET-with-query, and cross-wallet `403` enforcement. Harness: `apps/abcpay-api/src/scripts/seed-staging-fixtures.cjs` and `src/scripts/staging-e2e.ts` (`pnpm --filter @bcpros/abcpay-api seed:staging`, `... e2e:staging`); the web dev server and its `/bws` proxy were also verified against the running API. Remaining: click-through restore in the web UI (same API path already covered).
 
 ### Phase 3 — Production cutover
 

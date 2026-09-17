@@ -14,6 +14,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "import:legacy": "tsx src/migration/import-legacy.ts",
+    "seed:staging": "node src/scripts/seed-staging-fixtures.cjs",
+    "e2e:staging": "tsx src/scripts/staging-e2e.ts",
     "test": "vitest run"
   },
   "dependencies": {
