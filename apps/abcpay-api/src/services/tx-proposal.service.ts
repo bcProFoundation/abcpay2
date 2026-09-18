@@ -3,13 +3,16 @@ import { eq } from 'drizzle-orm';
 import type { CreateTxProposalRequest, ProposalInput, SupportedCoin } from '@bcpros/abcpay-models';
 import {
   broadcastTx,
+  bytesToHex,
   chainFromCoin,
   computeMaxSend,
   defaultFeePerKb,
   deriveWalletAddress,
   dustThreshold,
   estimateTxSize,
+  getTokenMetadata,
   minRelayFeePerKb,
+  planTokenSend,
   relativePath,
   selectUtxos,
   validateAddress
@@ -66,6 +69,76 @@ export class TxProposalService {
     });
   }
 
+  private async planTokenProposal(
+    wallet: typeof wallets.$inferSelect,
+    walletCopayers: (typeof copayers.$inferSelect)[],
+    proposal: CreateTxProposalRequest['proposals'][number],
+    feePerKb: number
+  ) {
+    if (proposal.sendMax) throw new Error('sendMax is not supported for token sends');
+    if (proposal.outputs.length !== 1) throw new Error('Token sends support exactly one recipient');
+
+    const coin = wallet.coin as SupportedCoin;
+    const tokenId = proposal.tokenId!.toLowerCase();
+    const recipient = proposal.outputs[0];
+    const atoms = BigInt(recipient.atoms ?? '0');
+    if (atoms <= 0n) throw new Error('Token amount must be greater than zero');
+    if (!validateAddress(coin, recipient.toAddress)) {
+      throw new Error(`Invalid output address: ${recipient.toAddress}`);
+    }
+
+    const metadata = await getTokenMetadata(chainFromCoin(coin), tokenId, config.chronik);
+    if (!metadata.protocol) throw new Error(`Token ${tokenId} is not indexed by Chronik`);
+    const tokenType = metadata.tokenType ?? (metadata.protocol === 'SLP' ? 1 : 0);
+
+    const dust = dustThreshold(coin);
+    const utxos = await walletService.getUtxos(wallet.walletId);
+    const plan = planTokenSend({
+      coin,
+      protocol: metadata.protocol,
+      tokenId,
+      tokenType,
+      utxos,
+      atoms,
+      feePerKb,
+      m: wallet.m,
+      n: wallet.n,
+      dustSats: dust
+    });
+
+    const inputs = await this.deriveProposalInputs(wallet, walletCopayers, plan.inputs);
+    const change = await walletService.createAddress(wallet.walletId, true);
+    const changeAddress = { address: change.address, path: change.path };
+
+    const outputs: Array<CreateTxProposalRequest['proposals'][number]['outputs'][number] & {
+      scriptHex?: string;
+      tokenId?: string;
+    }> = [
+      { toAddress: '', amount: 0, scriptHex: bytesToHex(plan.opReturnScript) },
+      {
+        toAddress: recipient.toAddress,
+        amount: Math.max(recipient.amount ?? dust, dust),
+        atoms: atoms.toString(),
+        tokenId
+      }
+    ];
+    if (plan.changeAtoms > 0n) {
+      outputs.push({ toAddress: change.address, amount: dust, atoms: plan.changeAtoms.toString(), tokenId });
+    }
+    if (plan.xecChange > 0) {
+      outputs.push({ toAddress: change.address, amount: plan.xecChange });
+    }
+
+    return {
+      inputs,
+      changeAddress,
+      outputs,
+      amount: outputs.reduce((sum, output) => sum + output.amount, 0),
+      fee: plan.fee,
+      tokenColumns: { tokenId, protocol: metadata.protocol as string, tokenType }
+    };
+  }
+
   async createProposal(walletId: string, copayerId: string, req: CreateTxProposalRequest) {
     const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
     if (!wallet) throw new Error('Wallet not found');
@@ -87,6 +160,11 @@ export class TxProposalService {
       proposal.feePerKb ?? defaultFeePerKb(wallet.coin as SupportedCoin)
     );
     const walletCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
+
+    if (proposal.tokenId) {
+      return this.createTokenProposal(wallet, walletCopayers, copayerId, proposal, feePerKb);
+    }
+
     let inputs = proposal.inputs as ProposalInput[] | undefined;
     let changeAddress = proposal.changeAddress;
     let fee = 0;
@@ -188,6 +266,52 @@ export class TxProposalService {
     notificationService.publish({
       type: 'proposal.created',
       walletId,
+      proposalId,
+      status: 'pending',
+      copayerId
+    });
+
+    return this.toResponse(created, wallet.m);
+  }
+
+  private async createTokenProposal(
+    wallet: typeof wallets.$inferSelect,
+    walletCopayers: (typeof copayers.$inferSelect)[],
+    copayerId: string,
+    proposal: CreateTxProposalRequest['proposals'][number],
+    feePerKb: number
+  ) {
+    const planned = await this.planTokenProposal(wallet, walletCopayers, proposal, feePerKb);
+    const proposalId = generateId();
+
+    const [created] = await db
+      .insert(txProposals)
+      .values({
+        proposalId,
+        walletId: wallet.walletId,
+        creatorId: copayerId,
+        coin: wallet.coin,
+        chain: wallet.chain,
+        network: wallet.network,
+        outputs: planned.outputs,
+        amount: planned.amount,
+        fee: planned.fee,
+        feePerKb,
+        message: proposal.message,
+        changeAddress: planned.changeAddress,
+        inputs: planned.inputs,
+        status: 'pending',
+        signatures: {},
+        actions: [],
+        tokenId: planned.tokenColumns.tokenId,
+        protocol: planned.tokenColumns.protocol,
+        tokenType: planned.tokenColumns.tokenType
+      })
+      .returning();
+
+    notificationService.publish({
+      type: 'proposal.created',
+      walletId: wallet.walletId,
       proposalId,
       status: 'pending',
       copayerId
@@ -377,6 +501,9 @@ export class TxProposalService {
       amount: proposal.amount,
       fee: proposal.fee,
       feePerKb: proposal.feePerKb,
+      tokenId: proposal.tokenId ?? undefined,
+      protocol: proposal.protocol ?? undefined,
+      tokenType: proposal.tokenType ?? undefined,
       message: proposal.message ?? undefined,
       changeAddress: proposal.changeAddress ?? undefined,
       inputs: proposal.inputs ?? [],

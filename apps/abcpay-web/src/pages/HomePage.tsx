@@ -75,6 +75,11 @@ export function HomePage() {
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-medium">{wallet.name}</span>
                     <div className="flex gap-2">
+                      {wallet.coin === 'xec' && (wallet.tokenCount ?? 0) > 0 && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--abcpay-surface-2)] text-[var(--abcpay-muted)] self-center">
+                          {wallet.tokenCount} token{wallet.tokenCount === 1 ? '' : 's'}
+                        </span>
+                      )}
                       <CoinBadge coin={wallet.coin} />
                       <MultisigBadge m={wallet.m} n={wallet.n} />
                     </div>

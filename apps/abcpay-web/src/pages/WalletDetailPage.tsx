@@ -7,22 +7,10 @@ import { useWallets } from '../context/WalletContext';
 import { useNotifications } from '../context/NotificationContext';
 import { api } from '../lib/api';
 import { broadcastProposal, signAndMaybeBroadcast } from '../lib/tx';
+import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
 
 const FALLBACK_POLL_MS = 8000;
 const LIVE_POLL_MS = 60000;
-
-function formatTokenAtoms(atoms: string, decimals?: number): string {
-  try {
-    const value = BigInt(atoms);
-    if (!decimals) return value.toString();
-    const base = 10n ** BigInt(decimals);
-    const whole = value / base;
-    const fraction = (value % base).toString().padStart(decimals, '0').replace(/0+$/, '');
-    return fraction ? `${whole}.${fraction}` : whole.toString();
-  } catch {
-    return atoms;
-  }
-}
 
 export function WalletDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -141,24 +129,38 @@ export function WalletDetailPage() {
       )}
 
       {wallet.coin === 'xec' && tokens.length > 0 && (
-        <div className="mx-4 p-4 bg-[var(--abcpay-surface)] rounded-2xl mb-4">
-          <h3 className="font-medium mb-3">Tokens (SLP)</h3>
-          <ul className="space-y-2 text-sm">
+        <div className="mx-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-medium">Tokens</h3>
+            <span className="text-xs text-[var(--abcpay-muted)]">
+              {tokens.length} held · excluded from spendable {config.unitName}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             {tokens.map(token => (
-              <li key={token.tokenId} className="flex items-center justify-between gap-3">
-                <span>
-                  {token.ticker || token.name || `${token.tokenId.slice(0, 10)}…`}
-                  {token.isMintBaton ? ' · mint baton' : ''}
-                </span>
-                <span className="font-mono">
-                  {formatTokenAtoms(token.atoms, token.decimals)}
-                </span>
-              </li>
+              <Link
+                key={token.tokenId}
+                to={`/wallet/${wallet.id}/send-token/${token.tokenId}`}
+                className="p-4 bg-[var(--abcpay-surface)] rounded-2xl hover:bg-[var(--abcpay-surface-2)] transition-colors"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-[var(--abcpay-surface-2)] text-[var(--abcpay-muted)]">
+                    {token.protocol ?? 'SLP'}
+                  </span>
+                  {token.isMintBaton && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300">
+                      baton
+                    </span>
+                  )}
+                </div>
+                <p className="font-medium truncate">{tokenLabel(token)}</p>
+                {token.name && token.name !== tokenLabel(token) && (
+                  <p className="text-xs text-[var(--abcpay-muted)] truncate">{token.name}</p>
+                )}
+                <p className="font-mono text-lg mt-2">{formatTokenAtoms(token.atoms, token.decimals)}</p>
+              </Link>
             ))}
-          </ul>
-          <p className="text-xs text-[var(--abcpay-muted)] mt-3">
-            Token UTXOs are excluded from spendable balance and coin selection.
-          </p>
+          </div>
         </div>
       )}
 
@@ -199,10 +201,22 @@ export function WalletDetailPage() {
               const readyToBroadcast = p.status === 'accepted' && signedCount >= p.requiredSignatures;
               return (
                 <div key={p.id} className="p-3 bg-[var(--abcpay-surface-2)] rounded-xl">
-                  <p className="text-sm">
-                    {(p.amount / config.unitToSatoshi).toFixed(config.unitDecimals)} {config.unitName} →{' '}
-                    {p.outputs[0]?.toAddress.slice(0, 18)}…
-                  </p>
+                  {(() => {
+                    const tokenOutput = p.outputs?.find(output => output.atoms);
+                    const tokenMeta = tokenOutput?.tokenId
+                      ? tokens.find(item => item.tokenId === tokenOutput.tokenId)
+                      : undefined;
+                    return (
+                      <p className="text-sm">
+                        {tokenOutput
+                          ? `${formatTokenAtoms(tokenOutput.atoms ?? '0', tokenMeta?.decimals)} ${
+                              tokenMeta ? tokenLabel(tokenMeta) : 'token'
+                            }`
+                          : `${(p.amount / config.unitToSatoshi).toFixed(config.unitDecimals)} ${config.unitName}`}{' '}
+                        → {p.outputs?.[tokenOutput ? 1 : 0]?.toAddress.slice(0, 18)}…
+                      </p>
+                    );
+                  })()}
                   <p className="text-xs text-[var(--abcpay-muted)] mt-1">
                     {signedCount}/{p.requiredSignatures} signatures ·{' '}
                     {readyToBroadcast ? 'ready to broadcast' : p.status}

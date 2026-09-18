@@ -7,6 +7,7 @@ import { CreateWalletPage } from './pages/CreateWalletPage';
 import { JoinWalletPage } from './pages/JoinWalletPage';
 import { WalletDetailPage } from './pages/WalletDetailPage';
 import { SendPage } from './pages/SendPage';
+import { TokenSendPage } from './pages/TokenSendPage';
 import { ReceivePage } from './pages/ReceivePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { HistoryPage } from './pages/HistoryPage';
@@ -23,6 +24,7 @@ export function App() {
         <Route path="/join-wallet" element={<JoinWalletPage />} />
         <Route path="/wallet/:id" element={<WalletDetailPage />} />
         <Route path="/wallet/:id/send" element={<SendPage />} />
+        <Route path="/wallet/:id/send-token/:tokenId" element={<TokenSendPage />} />
         <Route path="/wallet/:id/receive" element={<ReceivePage />} />
         <Route path="/wallet/:id/history" element={<HistoryPage />} />
         <Route path="/settings" element={<SettingsPage />} />

@@ -94,7 +94,12 @@ export function ReceivePage() {
               <QRCodeSVG value={address} size={200} />
             </div>
             <p className="text-sm text-[var(--abcpay-muted)] mb-2">Your receiving address</p>
-            <p className="font-mono text-sm break-all px-4 mb-6">{address}</p>
+            <p className="font-mono text-sm break-all px-4 mb-3">{address}</p>
+            {wallet.coin === 'xec' && (
+              <p className="text-xs text-[var(--abcpay-muted)] px-6 mb-6">
+                SLP and ALP tokens sent to this address appear as tiles in this wallet.
+              </p>
+            )}
             <button
               onClick={() => navigator.clipboard.writeText(address)}
               className="px-6 py-3 bg-[var(--abcpay-accent)] rounded-xl font-medium"

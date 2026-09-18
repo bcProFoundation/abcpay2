@@ -53,6 +53,11 @@ export function WalletsPage() {
                       <span className="font-medium">{wallet.name}</span>
                       <CoinBadge coin={wallet.coin} />
                       <MultisigBadge m={wallet.m} n={wallet.n} />
+                      {wallet.coin === 'xec' && (wallet.tokenCount ?? 0) > 0 && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--abcpay-surface-2)] text-[var(--abcpay-muted)]">
+                          {wallet.tokenCount} token{wallet.tokenCount === 1 ? '' : 's'}
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-[var(--abcpay-muted)]">
                       {showBalance

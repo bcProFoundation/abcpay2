@@ -38,6 +38,11 @@ export interface UnsignedInput {
 export interface TxOutput {
   address: string;
   satoshis: number;
+  /** Raw output script (e.g. token OP_RETURN). When set, `address` is ignored. */
+  scriptHex?: string;
+  /** Token metadata for token outputs (not serialized). */
+  atoms?: string;
+  tokenId?: string;
 }
 
 export interface UnsignedTx {
@@ -53,10 +58,14 @@ function txidBytes(txid: string): Uint8Array {
 }
 
 function serializeOutput(output: TxOutput, coin: SupportedCoin): Uint8Array {
-  if (!validateAddress(coin, output.address)) {
-    throw new Error(`Invalid output address: ${output.address}`);
-  }
-  const script = scriptPubKeyFromAddress(coin, output.address);
+  const script = output.scriptHex
+    ? hexToBytes(output.scriptHex)
+    : (() => {
+        if (!validateAddress(coin, output.address)) {
+          throw new Error(`Invalid output address: ${output.address}`);
+        }
+        return scriptPubKeyFromAddress(coin, output.address);
+      })();
   return concatBytes(u64LE(output.satoshis), compactSize(script.length), script);
 }
 
@@ -259,14 +268,20 @@ export function mergeCopayerSignatures(opts: {
 export function unsignedTxFromProposal(opts: {
   coin: SupportedCoin;
   inputs: UnsignedInput[];
-  outputs: Array<{ toAddress: string; amount: number }>;
+  outputs: Array<{ toAddress: string; amount: number; scriptHex?: string; atoms?: string; tokenId?: string }>;
   amount: number;
   fee: number;
   changeAddress?: { address: string; path: string };
 }): UnsignedTx {
   const totalIn = opts.inputs.reduce((sum, i) => sum + i.satoshis, 0);
   const change = totalIn - opts.amount - opts.fee;
-  const outputs: TxOutput[] = opts.outputs.map(o => ({ address: o.toAddress, satoshis: o.amount }));
+  const outputs: TxOutput[] = opts.outputs.map(o => ({
+    address: o.toAddress,
+    satoshis: o.amount,
+    scriptHex: o.scriptHex,
+    atoms: o.atoms,
+    tokenId: o.tokenId
+  }));
   if (change > 0 && opts.changeAddress) {
     outputs.push({ address: opts.changeAddress.address, satoshis: change });
   }

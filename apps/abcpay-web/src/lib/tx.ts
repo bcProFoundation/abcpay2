@@ -75,3 +75,32 @@ export async function createAndSendPayment(opts: {
   const proposal = await signAndMaybeBroadcast(created, opts.creds, opts.auth, wallet.copayers);
   return { proposal, txid: proposal.txid };
 }
+
+/** Sends `atoms` of a token to a single recipient. XEC dust and fees come from the wallet. */
+export async function createAndSendToken(opts: {
+  auth: AuthContext;
+  creds: StoredCredentials;
+  tokenId: string;
+  toAddress: string;
+  atoms: string;
+  message?: string;
+}): Promise<{ proposal: TxProposal; txid?: string }> {
+  const wallet = await api.getWallet(opts.auth);
+  const created = await api.createTxProposal(opts.auth, {
+    proposals: [
+      {
+        tokenId: opts.tokenId,
+        outputs: [
+          {
+            toAddress: opts.toAddress,
+            amount: 546,
+            atoms: opts.atoms,
+            message: opts.message
+          }
+        ]
+      }
+    ]
+  });
+  const proposal = await signAndMaybeBroadcast(created, opts.creds, opts.auth, wallet.copayers);
+  return { proposal, txid: proposal.txid };
+}

@@ -16,6 +16,7 @@ export interface LocalWallet {
   copayerId: string;
   copayerName: string;
   balance: number;
+  tokenCount: number;
   fiatBalance: string;
   status: string;
   secret?: string;
@@ -163,11 +164,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         try {
           const auth = authFor(wallet.id);
           let balance = 0;
+          let tokenCount = wallet.tokenCount ?? 0;
 
           if (auth) {
             try {
               const remoteBalance = await api.getBalance(auth);
               balance = remoteBalance.totalAmount;
+              tokenCount = remoteBalance.tokens?.length ?? 0;
             } catch {
               const creds = getCredentials(wallet.id);
               if (creds) {
@@ -203,6 +206,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           return {
             ...wallet,
             balance,
+            tokenCount,
             fiatBalance: `$${fiatAmount.toFixed(2)}`,
             status,
             m,
@@ -273,6 +277,7 @@ export function walletFromBwc(
     copayerId,
     copayerName,
     balance: 0,
+    tokenCount: 0,
     fiatBalance: '$0.00',
     status,
     secret
@@ -293,6 +298,7 @@ export function walletFromResponse(
     copayerId,
     copayerName,
     balance: 0,
+    tokenCount: 0,
     fiatBalance: '$0.00',
     status: response.status
   };
