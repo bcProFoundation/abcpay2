@@ -112,6 +112,7 @@ export async function getTxScripts(
 
 export interface ScriptToken {
   tokenId: string;
+  protocol?: 'SLP' | 'ALP';
   tokenType?: number;
   atoms: string;
   isMintBaton: boolean;
@@ -129,6 +130,7 @@ export interface ScriptUtxo {
 
 export interface TokenBalance {
   tokenId: string;
+  protocol?: 'SLP' | 'ALP';
   tokenType?: number;
   atoms: string;
   isMintBaton: boolean;
@@ -145,12 +147,23 @@ function tokenTypeNumber(tokenType: { number?: number } | number | null | undefi
   return tokenType?.number;
 }
 
+function tokenProtocol(tokenType: { protocol?: string } | null | undefined): 'SLP' | 'ALP' | undefined {
+  const protocol = tokenType?.protocol;
+  return protocol === 'SLP' || protocol === 'ALP' ? protocol : undefined;
+}
+
 function mapToken(token:
-  | { tokenId: string; tokenType?: { number?: number } | number | null; atoms: bigint; isMintBaton: boolean }
+  | {
+      tokenId: string;
+      tokenType?: { protocol?: string; number?: number } | number | null;
+      atoms: bigint;
+      isMintBaton: boolean;
+    }
   | undefined): ScriptToken | undefined {
   if (!token) return undefined;
   return {
     tokenId: token.tokenId,
+    protocol: typeof token.tokenType === 'object' ? tokenProtocol(token.tokenType) : undefined,
     tokenType: tokenTypeNumber(token.tokenType),
     atoms: token.atoms.toString(),
     isMintBaton: Boolean(token.isMintBaton)
@@ -171,6 +184,7 @@ export function summarizeUtxos(utxos: ScriptUtxo[]): AddressBalances {
       } else {
         tokens.set(utxo.token.tokenId, {
           tokenId: utxo.token.tokenId,
+          protocol: utxo.token.protocol,
           tokenType: utxo.token.tokenType,
           atoms: utxo.token.atoms,
           isMintBaton: utxo.token.isMintBaton
@@ -229,6 +243,7 @@ export async function getBalanceForAddress(
 
 export interface TokenMetadata {
   tokenId: string;
+  protocol?: 'SLP' | 'ALP';
   tokenType?: number;
   ticker?: string;
   name?: string;
@@ -252,6 +267,7 @@ export async function getTokenMetadata(
     const info = await getChronikClient(chain, config).token(tokenId);
     const value: TokenMetadata = {
       tokenId: info.tokenId,
+      protocol: tokenProtocol(info.tokenType as { protocol?: string } | null | undefined),
       tokenType: tokenTypeNumber(info.tokenType),
       ticker: info.genesisInfo?.tokenTicker || undefined,
       name: info.genesisInfo?.tokenName || undefined,

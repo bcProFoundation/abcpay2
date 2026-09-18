@@ -86,6 +86,7 @@ export type AddressResponse = z.infer<typeof addressResponseSchema>;
 
 export const utxoTokenSchema = z.object({
   tokenId: z.string(),
+  protocol: z.enum(['SLP', 'ALP']).optional(),
   tokenType: z.number().int().optional(),
   atoms: z.string(),
   isMintBaton: z.boolean()
@@ -184,12 +185,20 @@ export const txProposalSchema = z.object({
     z.object({
       toAddress: z.string(),
       amount: z.number(),
-      message: z.string().optional()
+      message: z.string().optional(),
+      /** Raw output script (token OP_RETURN) */
+      scriptHex: z.string().optional(),
+      /** Token amount in atoms */
+      atoms: z.string().optional(),
+      tokenId: z.string().optional()
     })
   ),
   amount: z.number(),
   fee: z.number(),
   feePerKb: z.number(),
+  tokenId: z.string().optional(),
+  tokenType: z.number().int().optional(),
+  protocol: z.enum(['SLP', 'ALP']).optional(),
   excludeUnconfirmedUtxos: z.boolean().optional(),
   message: z.string().optional(),
   payProUrl: z.string().optional(),
@@ -224,9 +233,12 @@ export const createTxProposalRequestSchema = z.object({
         z.object({
           toAddress: z.string(),
           amount: z.number(),
-          message: z.string().optional()
+          message: z.string().optional(),
+          /** Token amount in atoms (token sends) */
+          atoms: z.string().optional()
         })
       ),
+      tokenId: z.string().optional(),
       sendMax: z.boolean().optional(),
       feePerKb: z.number().optional(),
       excludeUnconfirmedUtxos: z.boolean().optional(),

@@ -6,5 +6,6 @@ export * from './keys';
 export * from './address';
 export * from './tx';
 export * from './coinselect';
+export * from './tokens';
 export * from './auth';
 export * from './chronik';

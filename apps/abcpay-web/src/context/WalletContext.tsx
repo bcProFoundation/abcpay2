@@ -16,6 +16,7 @@ export interface LocalWallet {
   copayerId: string;
   copayerName: string;
   balance: number;
+  tokenCount: number;
   fiatBalance: string;
   status: string;
   secret?: string;
@@ -28,6 +29,9 @@ export interface StoredCredentials extends WalletCredentials {
 
 interface WalletContextValue {
   wallets: LocalWallet[];
+  activeWallet: LocalWallet | undefined;
+  activeWalletId: string | null;
+  setActiveWallet: (id: string) => void;
   addWallet: (wallet: LocalWallet) => void;
   removeWallet: (id: string) => void;
   refreshBalances: () => Promise<void>;
@@ -44,6 +48,7 @@ interface WalletContextValue {
 const WalletContext = createContext<WalletContextValue | null>(null);
 
 const WALLETS_KEY = 'abcpay_v2_wallets';
+const ACTIVE_WALLET_KEY = 'abcpay_v2_active_wallet';
 
 function loadWallets(): LocalWallet[] {
   try {
@@ -123,6 +128,7 @@ function parseStoredCredentials(walletId: string, wallets: LocalWallet[]): Store
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [wallets, setWallets] = useState<LocalWallet[]>(loadWallets);
+  const [activeWalletId, setActiveWalletId] = useState<string | null>(() => localStorage.getItem(ACTIVE_WALLET_KEY));
   const [showBalance, setShowBalance] = useState(true);
   const [totalFiatBalance, setTotalFiatBalance] = useState('$0.00');
   const [pendingMnemonic, setPendingMnemonic] = useState<string | null>(null);
@@ -131,8 +137,31 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(WALLETS_KEY, JSON.stringify(wallets));
   }, [wallets]);
 
+  useEffect(() => {
+    if (activeWalletId) localStorage.setItem(ACTIVE_WALLET_KEY, activeWalletId);
+    else localStorage.removeItem(ACTIVE_WALLET_KEY);
+  }, [activeWalletId]);
+
+  // Single-wallet app: keep exactly one active wallet (default: the newest).
+  useEffect(() => {
+    if (wallets.length === 0) {
+      if (activeWalletId) setActiveWalletId(null);
+      return;
+    }
+    if (!activeWalletId || !wallets.some(wallet => wallet.id === activeWalletId)) {
+      setActiveWalletId(wallets[wallets.length - 1].id);
+    }
+  }, [wallets, activeWalletId]);
+
+  const setActiveWallet = useCallback((id: string) => {
+    setActiveWalletId(id);
+  }, []);
+
+  const activeWallet = wallets.find(wallet => wallet.id === activeWalletId) ?? wallets[wallets.length - 1];
+
   const addWallet = useCallback((wallet: LocalWallet) => {
     setWallets(prev => (prev.some(w => w.id === wallet.id) ? prev : [...prev, wallet]));
+    setActiveWalletId(wallet.id);
   }, []);
 
   const removeWallet = useCallback((id: string) => {
@@ -163,11 +192,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         try {
           const auth = authFor(wallet.id);
           let balance = 0;
+          let tokenCount = wallet.tokenCount ?? 0;
 
           if (auth) {
             try {
               const remoteBalance = await api.getBalance(auth);
               balance = remoteBalance.totalAmount;
+              tokenCount = remoteBalance.tokens?.length ?? 0;
             } catch {
               const creds = getCredentials(wallet.id);
               if (creds) {
@@ -203,6 +234,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           return {
             ...wallet,
             balance,
+            tokenCount,
             fiatBalance: `$${fiatAmount.toFixed(2)}`,
             status,
             m,
@@ -229,6 +261,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     <WalletContext.Provider
       value={{
         wallets,
+        activeWallet,
+        activeWalletId,
+        setActiveWallet,
         addWallet,
         removeWallet,
         refreshBalances,
@@ -273,6 +308,7 @@ export function walletFromBwc(
     copayerId,
     copayerName,
     balance: 0,
+    tokenCount: 0,
     fiatBalance: '$0.00',
     status,
     secret
@@ -293,6 +329,7 @@ export function walletFromResponse(
     copayerId,
     copayerName,
     balance: 0,
+    tokenCount: 0,
     fiatBalance: '$0.00',
     status: response.status
   };

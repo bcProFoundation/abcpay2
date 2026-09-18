@@ -361,6 +361,7 @@ export class WalletService {
         const metadata = await getTokenMetadata(chain, token.tokenId, chronikCfg());
         return {
           ...token,
+          protocol: token.protocol ?? metadata.protocol,
           ticker: metadata.ticker,
           name: metadata.name,
           decimals: metadata.decimals
