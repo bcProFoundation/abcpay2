@@ -220,11 +220,12 @@ LEGACY_MONGO_URL=mongodb://... DATABASE_URL=postgresql://... \
 
 - [x] SLP safety: token UTXOs carry `tokenId`/`atoms`/mint-baton info, are excluded from spendable balances and coin selection, and Chronik rejects token-burning broadcasts. Balances expose per-token totals with ticker/name/decimals. Remaining: token send/receive and mint-baton flows.
 - [x] Confirm legacy conventions against `bcProFoundation/bitcore` and `AbcPay` sources (request key `m/1'/0`, copayer ID `sha256(chain+xpub)`, XEC coin type 899, prefixless cashaddr, request signing)
-- [ ] SLP: 2,984 XEC SLP wallets are imported on the 1899 path; v2 does not surface token balances, so warn users before spending from token-bearing addresses (or add token-UTXO detection) before enabling sends for them
+- [x] SLP: the 2,984 XEC SLP wallets imported on the 1899 path now surface token balances and can spend standard SLP/ALP tokens; token UTXOs stay excluded from XEC coin selection
 - [ ] Confirm legacy BWS MongoDB collection/field names against the deployed server version (v8.25.x-era fork)
 - [ ] Decide whether to import legacy `addresses` rows (audit only vs source of truth for index continuity)
 - [ ] Decide transition length for legacy read-only and store-update policy for the old mobile app
 - [ ] Realtime: proposal/copayer events use an in-process SSE broker (single API instance). If the API scales out, bridge it with PG `LISTEN/NOTIFY`. On-chain activity is pushed by a Chronik WebSocket watcher while a wallet has an open stream (addresses are watched on demand, not in the background); a resumed/offline app still catches up via history/balance on load
+- [x] SLP/ALP: token balances surface per wallet (tiles with protocol/ticker/decimals) and standard SLP + ALP sends work end-to-end (verified on mainnet with generated test tokens); mint batons are excluded from spends. Remaining: token-aware history entries, token receive labels in notifications, minting/burning
 - [ ] XPI: who owns the future migration design; export tooling requirements
 
 ---

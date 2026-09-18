@@ -37,14 +37,15 @@ Modern rebuild of the AbcPay wallet with the **Chronik Wallet Service (CWS)** â€
 - Live wallet updates over SSE (`proposal.created`, `proposal.signed`, `proposal.rejected`, `proposal.broadcast`, `wallet.joined`, `wallet.complete`, `wallet.activity`); the web keeps one signed stream per wallet, refreshes balances on events, and falls back to 8s polling if the stream drops
 - Push notifications for on-chain activity: while a wallet has an open stream, its known addresses are watched on Chronik WebSocket subscriptions (ref-counted, lazy per chain, auto-resubscribed on reconnect); incoming/outgoing txs are matched by script and pushed as `wallet.activity` with `direction` and `msgType` (`TX_ADDED_TO_MEMPOOL`, `TX_CONFIRMED`, `TX_FINALIZED`, ...)
 - Chronik-backed UTXO lookup and tx broadcast
-- SLP token awareness: token UTXOs are tagged, excluded from XEC spending and coin selection, and token balances are shown (token transfers not yet supported)
+- SLP and ALP tokens: balances shown as tiles per wallet (protocol badge, ticker/name, decimals), single-recipient sends with automatic token selection, token change and dust/fee funding from XEC, mint batons protected from spending
+- Chronik-backed UTXO lookup and tx broadcast
 - Postgres instead of MongoDB
 
 ### Removed (vs legacy AbcPay/Copay)
 
 - BTC, BCH, LTC, XPI, ETH, ERC-20 tokens
 - Buy crypto, exchange, debit card, gift cards, WalletConnect
-- SLP/eToken transfers (token UTXOs are detected and protected from accidental spending; sending tokens is not yet supported)
+- Token minting/burning (transfers of standard SLP/ALP tokens are supported; GENESIS/MINT are not exposed)
 - Mobile native builds (web-first; Capacitor can be added later)
 
 ## Quick Start
@@ -127,6 +128,8 @@ Copy `.env.example` to `.env` and adjust Chronik URLs if needed.
 - [x] BWC-compatible API responses (`/v2/wallets/`, `/v4/addresses/`, etc.)
 - [x] Full send flow with tx building and signing
 - [x] Live wallet notifications over SSE for tx proposals
+- [x] SLP and ALP token tiles + transfer flow
+- [ ] Token-aware history entries and receive notifications (token receives currently surface as dust-XEC activity)
 - [ ] Capacitor mobile wrapper
 
 ## Related Repos
