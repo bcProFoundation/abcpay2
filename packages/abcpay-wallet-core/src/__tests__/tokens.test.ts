@@ -32,6 +32,13 @@ describe('token send scripts (ecash-lib vectors)', () => {
     expect(() => encodeAlpAtoms(1n << 48n)).toThrow(/out of range/);
   });
 
+  it('marks ALP OP_RETURNs as eMPP with OP_RESERVED', () => {
+    const alp = bytesToHex(alpSendScript('aa'.repeat(32), 0, [1n]));
+    const slp = bytesToHex(slpSendScript('aa'.repeat(32), 1, [1n]));
+    expect(alp.startsWith('6a50')).toBe(true);
+    expect(slp.startsWith('6a04')).toBe(true);
+  });
+
   it('rejects malformed token ids', () => {
     expect(() => slpSendScript('abc', 1, [1n])).toThrow(/64 hex/);
   });

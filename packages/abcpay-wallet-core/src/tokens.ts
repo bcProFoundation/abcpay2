@@ -18,6 +18,8 @@ export const SLP_FUNGIBLE = 1;
 export const ALP_STANDARD = 0;
 
 const OP_RETURN = 0x6a;
+/** OP_RESERVED marks eMPP (multi-pushdata) OP_RETURNs; required for ALP sections. */
+const OP_RESERVED = 0x50;
 const SLP_LOKAD_ID = Uint8Array.of(0x53, 0x4c, 0x50, 0x00);
 const ALP_LOKAD_ID = Uint8Array.of(0x53, 0x4c, 0x50, 0x32);
 const SEND = Uint8Array.of(0x53, 0x45, 0x4e, 0x44);
@@ -95,7 +97,7 @@ export function alpSendScript(tokenId: string, tokenType: number, atoms: bigint[
     Uint8Array.of(atoms.length),
     ...atoms.map(encodeAlpAtoms)
   );
-  return concatBytes(Uint8Array.of(OP_RETURN), pushData(payload));
+  return concatBytes(Uint8Array.of(OP_RETURN, OP_RESERVED), pushData(payload));
 }
 
 export function tokenSendScript(

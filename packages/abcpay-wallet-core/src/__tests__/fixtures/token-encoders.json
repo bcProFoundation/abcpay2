@@ -1,5 +1,5 @@
 {
-  "source": "Generated with ecash-lib@4.14.1 (Bitcoin ABC, MIT) slpSend/alpSend; tokenId order and pushdata semantics must match exactly.",
+  "source": "Generated with ecash-lib@4.14.1 (Bitcoin ABC, MIT): slpSend and emppScript([alpSend(...)]); tokenId order, eMPP marker (OP_RETURN OP_RESERVED) and pushdata semantics must match exactly.",
   "slpSend": [
     {
       "tokenId": "0387f4d7c04a7e3d1a6b0b1e7af6f8b0a2a1234567890abcdef0fedcba987654",
@@ -31,25 +31,25 @@
       "tokenId": "0387f4d7c04a7e3d1a6b0b1e7af6f8b0a2a1234567890abcdef0fedcba987654",
       "tokenType": 0,
       "atoms": ["1000"],
-      "scriptHex": "6a31534c5032000453454e44547698badcfef0debc0a89674523a1a2b0f8f67a1e0b6b1a3d7e4ac0d7f4870301e80300000000"
+      "scriptHex": "6a5031534c5032000453454e44547698badcfef0debc0a89674523a1a2b0f8f67a1e0b6b1a3d7e4ac0d7f4870301e80300000000"
     },
     {
       "tokenId": "0387f4d7c04a7e3d1a6b0b1e7af6f8b0a2a1234567890abcdef0fedcba987654",
       "tokenType": 0,
       "atoms": ["1000", "255"],
-      "scriptHex": "6a37534c5032000453454e44547698badcfef0debc0a89674523a1a2b0f8f67a1e0b6b1a3d7e4ac0d7f4870302e80300000000ff0000000000"
+      "scriptHex": "6a5037534c5032000453454e44547698badcfef0debc0a89674523a1a2b0f8f67a1e0b6b1a3d7e4ac0d7f4870302e80300000000ff0000000000"
     },
     {
       "tokenId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "tokenType": 0,
       "atoms": ["281474976710655"],
-      "scriptHex": "6a31534c5032000453454e44aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa01ffffffffffff"
+      "scriptHex": "6a5031534c5032000453454e44aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa01ffffffffffff"
     },
     {
       "tokenId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "tokenType": 0,
       "atoms": ["0"],
-      "scriptHex": "6a31534c5032000453454e44bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb01000000000000"
+      "scriptHex": "6a5031534c5032000453454e44bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb01000000000000"
     }
   ]
 }
