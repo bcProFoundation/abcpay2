@@ -1,6 +1,7 @@
 # P1 — PSBT as the proposal and envelope format
 
-Status: design · Depends on: [client-verification.md](client-verification.md) · Next:
+Status: design · Wire format **verified against `ecash-lib@4.14.1` `src/psbt.ts`**
+(Sept 2026) · Depends on: [client-verification.md](client-verification.md) · Next:
 [payment-requests.md](payment-requests.md), [payjoin.md](payjoin.md)
 
 ## Why PSBT
@@ -8,62 +9,129 @@ Status: design · Depends on: [client-verification.md](client-verification.md) �
 - **One standard format** for unsigned/partially signed transactions: offline signers,
   multi-party rounds, and PayJoin all need to move a tx under construction between
   parties.
-- **Interop** with the eCash ecosystem (`ecash-lib` ships a `Psbt` implementation and
-  Bitcoin ABC tooling speaks BIP174); we do not want a bespoke wire format.
+- **Interop**: `ecash-lib` ships a `Psbt` class implementing BIP174 v0 **field-level**
+  serialization aligned with Bitcoin ABC, and the node's `decodepsbt`/`combinepsbt`
+  speak the same format. We do not need a bespoke wire format.
 - **Verifiability**: PSBT carries the unsigned tx plus per-input prevout data, so a
   signer can verify what it signs (ties directly into P0).
 
-## Scope
+## Wire format (verified, not assumed)
 
-- BIP174 **PSBT v0 subset** (no PSBTv2), matching what `ecash-lib` produces/consumes.
-- Required fields:
-  - `PSBT_GLOBAL_UNSIGNED_TX`
-  - `PSBT_IN_NON_WITNESS_UTXO` for every input — eCash inherits the Bitcoin Cash
-    format (no segwit), so the full previous transaction is required. The node (or
-    client) fetches raw prev txs from Chronik (`rawTx(txid)`).
-  - `PSBT_IN_PARTIAL_SIG` per signer pubkey (our ECDSA secp256k1 + forkid sighash).
-  - `PSBT_IN_BIP32_DERIVATION` (optional) for hardware/offline signers.
-  - `PSBT_OUT_*` minimal; **proprietary output keys** carry token metadata.
-- Proprietary keys (0xFC) — proposed identifiers, to be frozen with implementation:
+What `ecash-lib@4.14.1` actually implements:
+
+- Magic `psbt\xff`; then the global map, one map per input, one map per output. Each
+  map is a sequence of `<compactSize keyLen><key><compactSize valueLen><value>`, pairs
+  sorted lexicographically by key, terminated by a zero-length key. **Duplicate keys in
+  a map are rejected.**
+- **Global `0x00`** = unsigned tx, and its scriptSigs must be empty. Any other global
+  pair is preserved verbatim.
+- **Inputs**:
+  - `0x00` (`PSBT_IN_UTXO`, ABC naming) — value is **either** the full previous
+    transaction (non-witness UTXO) **or** a compact `CTxOut`
+    (`u64 sats` ‖ `compactSize`-prefixed `scriptPubKey`).
+  - `0x02` = partial signature: key is the type byte ‖ a 33-byte (compressed) or
+    65-byte (uncompressed) pubkey; value is the DER signature ‖ sighash byte.
+  - `0x03` = sighash type, `0x04` = redeem script, `0x06` = BIP32 derivation, `0x07` =
+    final scriptSig. A BIP32 derivation value is a compactSize length prefix ‖ 4-byte
+    fingerprint ‖ uint32 path components (the unprefixed BIP174-text shape is also
+    accepted on read; **we always write the prefixed, ABC-compatible shape**).
+  - BIP174's `0x01` is *not* read as a witness UTXO (ABC behaviour) and survives only as
+    an unknown pair. We never write `0x01`.
+- **Outputs**: `0x00` = redeem script, `0x02` = BIP32 derivation; everything else is
+  unknown/preserved.
+- **Unknown key–value pairs are preserved on round-trip in all three maps** — this is
+  what lets our proprietary token keys live inside the PSBT.
+- API surface: `Psbt.fromBytes(bytes)`, `psbt.toBytes()`, `Psbt.fromTx(tx, signDataPerInput, ecc)`,
+  `psbt.toTx()`, `psbt.addMultisigSignature({ inputIdx, signature, signData, ecc? })`,
+  `psbt.addMultisigSignatureFromKey({ inputIdx, sk, signData, sigHashType?, ecc? })`,
+  `psbt.isFullySignedMultisig()`. Per-input state: `signDataPerInput[i] = { sats,
+  redeemScript? | outputScript? }`, `inputPartialSigs[i]: Map<pubkeyHex, sig>`,
+  `inputWitnessIncomplete[i]`.
+
+**Decision (this closes the old "field-level vs ABC blob vs JSON+raw fork" question):
+field-level BIP174 v0 is the wire format**, byte-compatible with `ecash-lib` and
+Bitcoin ABC. No JSON+raw-hex sidecar, no ABC-proprietary envelope blob, no custom
+`psbtVersion` field. The legacy JSON proposal stays as an *adapter* in wallet-core, and
+the byte-identity test below is the migration safety net.
+
+## Subset we produce
+
+- Required: global unsigned tx, input `0x00` for **every** input, input `0x02` per
+  signer pubkey, input `0x04` redeem script for every multisig input.
+- Optional: input `0x06` BIP32 derivation (for hardware/offline signers), `0x03`
+  sighash. Outputs stay minimal — token metadata uses proprietary keys.
+- Prev-tx data: write the **full previous transaction** when available (eCash has no
+  segwit, so the non-witness UTXO is the ABC-native shape). The compact `CTxOut` form
+  is accepted on read and may be written only when the full prev tx is unavailable, in
+  which case the client cross-checks scripts and satoshis against Chronik's `tx(txid)`
+  (already wrapped by `getTxScripts` in `chronik.ts`). Any raw-hex prev tx is parsed
+  with our own `Tx` deserializer, never trusted as an opaque blob.
+- Proprietary keys (`0xFC`, framed as `0xFC ‖ compactSize(prefixLen) ‖ prefix ‖ keyData`),
+  frozen with the implementation:
 
   | Key | Value | Purpose |
   |---|---|---|
-  | `cws.output.tokenId` | 32-byte token id | token output identity |
-  | `cws.output.protocol` | `"SLP"` \| `"ALP"` | encoder selection for verification |
-  | `cws.output.atoms` | u64/u48 big-endian bytes | token amount on an output |
-  | `cws.proposal.id` | 16-byte proposal id | correlates PSBT with node record (opaque) |
+  | `cws.output.token` | 32 bytes = the 64-char token id, hex-pair per byte, left to right (display order) | token output identity |
+  | `cws.output.protocol` | ASCII `SLP` / `ALP` | encoder selection for verification |
+  | `cws.output.atoms` | decimal ASCII, unsigned, no leading zeros (matches the JSON `atoms: string` on `/v3/txproposals/`) | token amount on an output |
+  | `cws.proposal.id` | the 16 raw bytes behind our 32-char `proposalId` hex (`randomBytes(16).toString('hex')`) | correlates PSBT with the node record |
 
-- **Transport**: PSBTs travel as base64 inside encrypted envelopes
+  Token metadata is **advisory**: the client recomputes the OP_RETURN and atom amounts
+  from intent (R8–R10 in [client-verification.md](client-verification.md)); a mismatch
+  between proprietary pairs and the recomputed values is a verification *failure*, not a
+  hint. The pairs exist so a second implementation can read the tx without the JSON.
+- **Transport**: base64 of the PSBT bytes inside encrypted envelopes
   ([payment-requests.md](payment-requests.md)). The node stores opaque blobs and never
-  needs to parse them (blind relay). For the legacy proposal flow the node may also
-  store the PSBT next to the JSON proposal for compatibility.
+  approves correctness. Note the size budget: base64 is ~1.33× raw and multisig + token
+  pairs inflate the PSBT, so the 16 KiB default envelope cap is too small for PSBT
+  payloads — size classes are specified in [payment-requests.md](payment-requests.md).
+  Legacy `/v3/txproposals/` responses gain an optional `psbt` (base64) + `psbtSha256`
+  field so current clients can ignore it and new clients can use it as the source of
+  truth.
 
 ## Guiding invariants
 
 1. **Byte-identical assembly.** `assemble(PSBT)` must produce exactly the same raw tx as
    today's `unsignedTxFromProposal` + `mergeCopayerSignatures` + `assembleTxHex` path
-   for every existing fixture. This is the migration safety net: the new encoder is
-   added, the old path stays, and a test asserts equality byte-for-byte.
-2. **No new cryptography.** Signatures are the same ECDSA + `SIGHASH_ALL|FORKID` we
-   already produce; PSBT is only a container. Our `signTxInputs` stays the signer.
-3. **Non-custodial always.** A PSBT that leaves a party is either unsigned or partially
-   signed; a fully signed PSBT is broadcast immediately (never stored server-side in
-   cleartext form with all signatures if we can avoid it — note: signatures are public
-   once broadcast anyway, so storage is not a custody risk, only a privacy one).
+   for every existing fixture. The new encoder is added, the old path stays, and a test
+   asserts equality byte-for-byte. This also holds per round: every `combinePsbts`
+   result must serialize to the same unsigned tx bytes.
+2. **Round-trip stability.** `toBytes(fromBytes(b)) === b` for every PSBT we produce,
+   and every PSBT we produce must parse with `ecash-lib`'s `Psbt.fromBytes` and with
+   the node's `decodepsbt` (dev-only interop check, never a runtime dependency).
+3. **No new cryptography.** Signatures are the same ECDSA + `SIGHASH_ALL|FORKID` we
+   already produce; PSBT is only a container, and `signTxInputs` stays the signer. (The
+   envelope channel *does* introduce a new crypto composition — that is tracked as a
+   ground rule and review gate in [architecture.md](architecture.md#ground-rules).)
+4. **Non-custodial always.** A PSBT that leaves a party is either unsigned or partially
+   signed; a fully signed PSBT is broadcast by the client and the node keeps only the
+   txid. Signatures are public once broadcast, so node-side storage is a privacy
+   consideration, not a custody one.
 
 ## Module layout
 
-- `packages/abcpay-wallet-core/src/psbt.ts`
-  - `txToPsbt({ tx, prevTxsById, inputPaths, outputMeta })`
-  - `parsePsbt(bytes) / serializePsbt(psbt)`
-  - `addPartialSignature(psbt, inputIndex, pubkey, sig)`
-  - `combinePsbts(a, b)` (same unsigned tx required)
-  - `finalizePsbt(psbt)` → raw tx hex
-  - Varint/var-slice codecs reused from existing `bytes.ts`.
-- Dev-only fixture validation against `ecash-lib` (not a runtime dependency):
-  generate a PSBT for a fixture tx with `ecash-lib`, parse it with ours, and
-  cross-assemble; run in `wallet-core` tests with the dependency installed **in the
-  test workspace only**.
+- `packages/abcpay-wallet-core/src/psbt.ts` (new):
+  - `txToPsbt({ tx, prevTxsById, inputPaths, outputMeta })` — build via
+    `Psbt.fromTx`, then attach proprietary output/global pairs.
+  - `parsePsbt(bytes | base64) / serializePsbt(psbt)` — thin, strict wrappers over
+    `Psbt.fromBytes` / `psbt.toBytes()` (strict base64: no whitespace tolerance).
+  - `addPartialSignature(psbt, inputIndex, pubkey, sig)` — wraps
+    `addMultisigSignature`; rejects a signature whose pubkey is not in the redeem
+    script.
+  - `combinePsbts(a, b)` — requires the **same unsigned tx**: compare the serialized
+    unsigned-tx bytes (not object identity) and the same input count. Inputs are matched
+    by outpoint, canonically the 36-byte `txid(32, display order) ‖ vout(u32le)`, so a
+    copy with reordered inputs still combines. Union per input: `0x00`, `0x04`, `0x06`,
+    and the `0x02` maps. Any proprietary/unknown pair that differs byte-for-byte between
+    the two PSBTs → reject (no silent last-writer-wins).
+  - `finalizePsbt(psbt)` — `isFullySignedMultisig()` first, then `toTx()` → raw hex.
+  - var-slice codecs: `bytes.ts` currently has `compactSize` (write only) and **no
+    compactSize reader**. Add `readCompactSize(bytes, offset)` and `readVarSlice` to
+    `bytes.ts` (shared with any future encoder) and fuzz them against `ecash-lib`'s
+    `readVarSize`/`writeVarSize`.
+- Dev-only fixture validation against `ecash-lib` (not a runtime dependency): generate a
+  PSBT for a fixture tx with `ecash-lib`, parse it with ours, cross-assemble, and assert
+  byte equality; the dependency is installed in the test workspace only.
 
 ## Node API (`/v5/psbt/`)
 
@@ -71,15 +139,24 @@ Status: design · Depends on: [client-verification.md](client-verification.md) �
 |---|---|---|
 | POST | `/v5/psbt/` | Create a PSBT from an intent (server-assisted selection, client verifies per P0) |
 | GET | `/v5/psbt/:id` | Fetch an opaque stored PSBT (auth: wallet member) |
-| POST | `/v5/psbt/:id/sign` | Attach a partial signature (from a copayer or the counterparty) |
+| POST | `/v5/psbt/:id/sign` | Attach a partial signature — **wallet copayers only** |
 | POST | `/v5/psbt/:id/finalize` | Assemble if complete; returns raw tx for broadcast |
-| POST | `/v5/psbt/:id/relay` | Broadcast the final raw tx to Chronik (or client broadcasts itself) |
+| POST | `/v5/psbt/:id/relay` | Fallback relay of the final raw tx to Chronik |
 
-All routes stay authenticated with the existing `x-identity`/`x-signature` scheme. The
-node validates only what it must to protect itself (size, membership, status
-transitions) and stores the rest opaquely. Existing `/v3/txproposals/` responses gain an
-optional `psbt` field (base64) so current clients can ignore it and new clients can use
-it as the source of truth.
+- **Counterparties never sign through the node.** A PayJoin receiver is not a copayer of
+  the sender's wallet; it returns a PSBT inside an encrypted envelope, and the sender
+  verifies it under S1–S9 in [payjoin.md](payjoin.md). `/v5/psbt/:id/sign` is
+  copayer-only and the auth contract is in
+  [architecture.md § v5 auth contract](architecture.md#v5-auth-contract).
+- **Broadcast preference**: the client broadcasts the final raw tx **directly to
+  Chronik** (or any compatible node) by default. `/relay` exists for clients behind
+  networks that block direct broadcast; a self-hosted node can simply relay for its own
+  clients.
+- The node may parse a PSBT only to count inputs/partial signatures for authorization and
+  quota enforcement. It never approves correctness — that is the client's job, and its
+  parse result is untrusted by definition.
+- Existing `/v3/txproposals/` responses gain optional `psbt` + `psbtSha256` fields
+  (additive; no field removals).
 
 ## Multi-party rounds
 
@@ -87,27 +164,39 @@ it as the source of truth.
 - **Multisig (m-of-n)**: build → each copayer verifies (P0) and posts a partial sig →
   combine → finalize when `m` partial sigs exist → broadcast. This is exactly the
   current proposal lifecycle, with PSBTs as the payload instead of raw signature
-  arrays; the existing SSE events (`proposal.signed`, ...) keep driving the UI.
+  arrays; the existing SSE events (`proposal.signed`, ...) keep driving the UI. The
+  assembler is the only path to a raw tx, and both the legacy and PSBT paths must yield
+  identical bytes (invariant 1).
 - **Offline signers (roadmap)**: export/import PSBT as a file/QR; no server round
   required.
 
 ## Test plan
 
-- Round-trip: encode → decode → equals original (fuzz a few hundred fixture txs).
+- Round-trip: encode → decode → byte-equal original (fuzz a few hundred fixture txs).
+- Interop: parse an `ecash-lib`-produced PSBT (fixture checked into `__tests__`) and
+  assert our bytes parse with `Psbt.fromBytes`; a `decodepsbt` check runs in CI against
+  a node when one is available.
+- Unknown/proprietary pairs survive a full `ecash-lib` `fromBytes`/`toBytes` round trip
+  (critical: the reference implementation must not drop our token keys).
+- BIP32 derivation: prefixed (ABC) and unprefixed (BIP174 text) values both parse; we
+  emit the prefixed form.
 - Byte-identity vs legacy assembly (all parity fixtures: XEC 899/1899/145, DOGE,
   2-of-2/2-of-3, token sends).
-- `combinePsbts` mismatch rejection (different unsigned tx, different input count).
+- `combinePsbts`: same tx with reordered inputs → combines; different unsigned tx,
+  different input count, or a conflicting proprietary pair → rejected.
 - `finalizePsbt` with insufficient signatures → error; with `m` → valid raw tx; txid
   equals legacy txid.
-- Interop: parse an `ecash-lib`-produced PSBT (fixture checked into `__tests__`).
-- Token metadata proprietary keys survive round-trip and are used by the P0 verifier.
+- Proprietary encodings: `cws.output.atoms` round-trips for `1`, `100000000`, and large
+  values; non-decimal, signed, and leading-zero forms are rejected.
+- var-slice codec fuzz against `ecash-lib` `readVarSize`/`writeVarSize`.
 - Node API: membership enforcement, size limits, status transitions (unit + e2e).
 - E2E on Pi: existing proposal flow served as PSBT, signatures attached via PSBT route,
   broadcast, recipient sees funds; both SLP and ALP token sends covered.
 
 ## Acceptance criteria
 
-- [ ] `psbt.ts` covers BIP174 v0 subset with the documented proprietary keys.
+- [ ] `psbt.ts` covers the documented BIP174 v0 subset, and every PSBT we emit is
+      accepted by both `ecash-lib` and `decodepsbt`.
 - [ ] Byte-identity tests pass for all existing fixtures and real mainnet txs.
 - [ ] `/v5/psbt/` lifecycle works end-to-end on the Pi for single-sig and 2-of-2.
 - [ ] Legacy clients unaffected (no field removals; `psbt` is additive).
@@ -122,3 +211,8 @@ it as the source of truth.
 3. Do we want `SIGHASH_SINGLE`/`ANYONECANPAY` variants for PayJoin optimization, or
    keep `ALL|FORKID` for simplicity? (PayJoin works with `ALL`; ANYONECANPAY could
    reduce re-signing rounds but weakens signature binding — research before use.)
+4. Incoming `0x01` (BIP174 witness UTXO) PSBTs: today they parse as inputs with no UTXO
+   data and are rejected. Do we add explicit `0x01` support for cross-chain tooling, or
+   keep ABC parity and reject?
+5. Publish the proprietary prefix strings and encodings as a short spec with test vectors
+   so another implementation can read our token metadata.

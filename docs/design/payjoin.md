@@ -29,6 +29,18 @@ We will measure and report the per-tx effect (see "Measurement") instead of clai
 Use `ecash:` P2PKH/P2SH inputs, `SIGHASH_ALL|FORKID`. Single-sig first; multisig is a
 later phase with the same message flow but more signing rounds.
 
+**Scope of the MVP: XEC payments only.** A PayJoin contribution is restricted to
+**plain, non-token XEC inputs** (no SLP/ALP token, no mint baton), and token sends are
+not PayJoined in the MVP — the flow refuses to start with an explicit `unsupported`
+reason rather than guessing at token accounting. When token PayJoin is designed later,
+S4's OP_RETURN byte-identity and the R9/R10 token rules in
+[client-verification.md](client-verification.md) apply unchanged, and contributed inputs
+remain non-token.
+
+**PSBTs never travel to the node in plaintext.** Every step below happens inside
+end-to-end encrypted envelopes; `/v5/psbt/:id/sign` is copayer-only and is not part of
+this flow ([psbt.md](psbt.md)).
+
 ```
 Sender                                         Receiver
   | 1. build original PSBT (payment + change)     |
@@ -36,12 +48,14 @@ Sender                                         Receiver
   |--- 2. envelope(psbt, expect=contribute) ----->|
   |                                               | 3. verify: payment output amount/script,
   |                                               |    no extra outputs, fee sane
-  |                                               | 4. add >=1 own input, adjust own change,
-  |                                               |    rebalance fee, sign own input(s)
+  |                                               | 4. add >=1 own non-token XEC input,
+  |                                               |    adjust own change, rebalance fee,
+  |                                               |    sign own input(s)
   |<-- 5. envelope(psbt', expect=finalize) -------|
   | 6. verify PSBT': my inputs unchanged, payment |
   |    output exactly as intended, new inputs     |
-  |    only from receiver, fee within cap         |
+  |    only from receiver, fee within cap, and    |
+  |    every new input's partial sig verifies (S9)|
   | 7. sign my inputs, assemble, broadcast        |
   |--- 8. envelope(receipt, txid) --------------->|
 ```
@@ -54,6 +68,9 @@ Fallback/abort rules:
 - **Never broadcast both** the original and the PayJoin tx (double-spend attempt wires
   the inputs; the second broadcast fails and looks suspicious). Once a PayJoin attempt
   starts, cancel the original.
+- Any S1–S9 rejection aborts the PayJoin and falls back to the original flow (or asks
+  the user), logging the rule id; a rejected contribution is never "accepted with a
+  warning".
 
 ## Sender verification rules (the critical security surface)
 
@@ -61,33 +78,53 @@ The receiver controls the returned PSBT; the sender must reject any mutation of 
 intent:
 
 - **S1** The unsigned tx context is the same transaction (same coin/network; the
-  receiver may only *add inputs* and *adjust receiver-owned outputs*).
-- **S2** Payment output: exact `atoms/satoshis` as agreed, paid to a script the
-  receiver proved control of (their input's address ring or an address they sign for —
-  design choice: require the payment script to be one of the receiver's input
-  addresses to avoid redirection by a MITM).
+  receiver may only *add inputs* and *adjust receiver-owned outputs*). Concretely: the
+  returned unsigned tx must contain the sender's original inputs unchanged and the
+  original outputs except as allowed by S3/S4.
+- **S2** Payment output: exact `atoms/satoshis` as agreed, and the payment script must
+  be **byte-equal to the script of one of the receiver's own contributed inputs**
+  (decoded scripts, lowercase hex — same comparison as R1). This is the MVP decision, and
+  it is what ties the payment to a UTXO the receiver demonstrably controls and has signed
+  for. "PayJoin to a fresh address" is *not* in the MVP: a receiver-signed output address
+  is a weaker binding (the receiver could hand out an address it also gives to third
+  parties) and needs a separate proof format before it is allowed here. So there is no
+  redirect target for a MITM: any change to the payment script or amount is S2.
 - **S3** Sender change: unchanged, or reduced by exactly the receiver's contribution
   necessary to keep the tx funded (never redirected to a non-sender output).
 - **S4** Output set: no outputs added/removed beyond (a) payment, (b) sender change,
   (c) receiver change; OP_RETURN (token sends) byte-identical to the sender's original.
 - **S5** Input set: superset of sender inputs; all *new* inputs must be
   receiver-attributable (present in the receiver's contribution envelope/signature),
-  never a third party's.
-- **S6** Fee: recomputed from the new tx; within the sender's cap; ≥ min relay fee.
+  never a third party's, **and must be plain non-token XEC** — an input carrying an
+  SLP/ALP token or a mint baton is rejected in the MVP (token accounting for contributed
+  inputs is not designed yet; silently mixing it would break R9/R10).
+- **S6** Fee: recomputed from the new tx; within the sender's cap; ≥ min relay fee. The
+  extra input's fee is absorbed by the sender by default and shown in the UI.
 - **S7** PSBT integrity: no partial sigs from the sender are stripped; proprietary
-  token keys unchanged.
+  token keys unchanged; `proposalId` proprietary key matches.
 - **S8** Idempotency: the returned PSBT's `proposalId` matches the one sent (prevents
-  cross-request substitution).
+  cross-request substitution), and the envelope `id`/`round` are fresh.
+- **S9** New-input signature proof: for every added input, the `PSBT_IN_PARTIAL_SIG`
+  (key type `0x02`) must be a valid ECDSA signature over that input's
+  `SIGHASH_ALL|FORKID` preimage by the pubkey in the key, and that pubkey must belong to
+  the input's `scriptPubKey` (P2PKH: hash160 match; P2SH: hash160 of the redeem script).
+  Additionally: no partial sig whose pubkey is in the **sender's** key set may appear on
+  a new input (an impersonation attempt), and the count of new inputs must equal the
+  number of receiver signatures offered. This is what actually proves "the receiver
+  contributed this input" without trusting the node or the receiver's self-description.
 
 Attack table:
 
 | Attack | Rule that blocks it |
 |---|---|
 | Reduce/redirect payment output | S2 |
-| Swap payment address to attacker | S2 (script tied to receiver's inputs) |
+| Swap payment address to attacker | S2 (script must equal a receiver input's script) |
 | Insert extra output | S4 |
 | Redirect sender change | S3 |
-| Add a third-party input to frame someone | S5 |
+| Add a third-party input to frame someone | S5, S9 |
+| Claim a contribution without signing for it | S9 |
+| Forge a receiver signature on a new input | S9 (preimage + pubkey/script check) |
+| Slip in a token input to poison token accounting | S5 (non-token-only in MVP) |
 | Inflate fee to burn funds | S6 |
 | Replace PSBT with a different tx | S1, S8 |
 | Replay an old contribution | S8 + envelope TTL/ids |
@@ -110,7 +147,9 @@ These are heuristics, not guarantees; document that PayJoin is an arms race.
 ## Multisig (phase 2)
 
 - Both sides are m-of-n wallets → contribution becomes a PSBT round: each copayer
-  verifies (P0) and attaches a partial sig to their side.
+  verifies (P0) and attaches a partial sig to their side. S9 applies per receiver
+  copayer: each added input needs a verifying signature from a key in that input's
+  script ring, and the sender's own keys must not appear on new inputs.
 - Complexity: rounds multiply (sender n_s signs + receiver n_r signs, combined via
   `combinePsbts`), and the receiver must keep their contribution funded/valid while
   waiting. Design notes: bounded round timeouts, cancel semantics, and never partially
@@ -144,11 +183,17 @@ Log locally (client) and optionally report in aggregate:
 
 Unit (`wallet-core` + verifier):
 
-- Attack matrix S1–S8 (each crafted PSBT rejected with the expected rule).
+- **Attack matrix S1–S9** (each crafted PSBT rejected with the expected rule), including
+  the S9 cases specifically: partial sig by the wrong key, sig over a different preimage
+  (input index/value swapped), pubkey not matching the input's scriptPubKey, sender-key
+  sig attached to a new input, fewer sigs than new inputs.
 - Happy-path contribution: receiver adds input + change, fee rebalance correct, final
   raw tx valid, txid stable.
-- Token PayJoin: OP_RETURN untouched; token atoms accounting holds; change atoms exact.
-- Randomization: output/input order shuffling does not break assembly.
+- Token PayJoin: the flow **refuses to start** for a token send and for any contribution
+  that includes a token input, with an explicit `unsupported` reason (this is the tested
+  MVP behavior, not a gap).
+- Randomization: output/input order shuffling does not break assembly — and the
+  S1/S9 checks are order-insensitive (outpoint-canonical matching, not array indices).
 
 E2E (Pi, real funds):
 
@@ -160,21 +205,35 @@ E2E (Pi, real funds):
 
 ## Acceptance criteria
 
-- [ ] Sender verification rules S1–S8 implemented and covered by tests.
+- [ ] Sender verification rules S1–S9 implemented and covered by tests.
 - [ ] Single-sig PayJoin completes end-to-end on mainnet with both wallets' inputs in
       the final tx.
 - [ ] Fallback path is automatic and leaves no double-spend attempts.
 - [ ] Anonymity-set estimate is measured and documented per transaction (local only).
 - [ ] Multisig PayJoin explicitly out of scope until single-sig soak completes.
 
+## Resolved decisions
+
+- **Receiver-address binding (was open question 1)**: payment script must byte-equal one
+  of the receiver's contributed input scripts (S2). A receiver-signed *fresh* address is
+  deferred until it has a proof format; it is not an MVP alternative.
+- **Contribution timing (was open question 2)**: async envelope flow, as drawn above. The
+  sender cancels the original proposal when the attempt starts, holds the flow open for a
+  bounded window (default 30s + UI countdown), and resumes the original path on decline,
+  timeout, or any S-rule rejection.
+- **Fee ownership (was open question 3)**: the sender absorbs the extra input's fee by
+  default, and the confirm screen shows the fee delta explicitly.
+- **Token PayJoin**: out of scope for the MVP (S5), with an explicit refusal instead of a
+  best-effort attempt.
+
 ## Open questions
 
-1. Receiver-address binding for S2: require payment output script to equal one of the
-   receiver's input scripts, or accept a receiver-signed output address? (The former is
-   simpler and stronger; the latter supports "PayJoin to a fresh address".)
-2. Contribution timing: synchronous online handshake (BIP78-style) vs the async
-   envelope flow; async is friendlier for mobile but widens the change-theft window —
-   consider a short-lived reservation of the sender's original PSBT.
-3. Fee ownership: who pays the extra input's fee in the UI (sender absorbs by default)?
-4. Anyonepay (`SIGHASH_ANYONECANPAY`) to reduce re-signing rounds — research before
+1. Anyonepay (`SIGHASH_ANYONECANPAY`) to reduce re-signing rounds — research before
    enabling; it weakens signature binding and changes the security model.
+2. Whether a v2 receiver proof for "PayJoin to a fresh address" can be as strong as S2
+   (e.g. a signature over a canonical bind message including the output script, the tx
+   preimage hash, and a nonce), or whether the restriction is permanent.
+3. Multisig phase 2 timing: reservation semantics for a receiver's contribution while
+   sender copayers are still signing (bounded rounds, cancel on timeout).
+4. Whether the anonymity-set estimate should be reported to the receiver too, or kept
+   strictly sender-side (privacy of the measurement itself).

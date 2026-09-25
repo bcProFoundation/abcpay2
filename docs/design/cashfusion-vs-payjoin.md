@@ -20,7 +20,7 @@ other does not.
 | Durability of the gain | Fragile: known PayJoin fingerprints; undone by address reuse or merging change | Fragile differently: fusion peers see the fused tx, so privacy is vs third parties; undone if fused outputs are later merged or reused |
 | Costs / UX | +1 input; receiver must hold a UTXO and support PayJoin; async is fine | Larger tx; wait for a round; Tor; fragmented outputs; post-fusion hygiene required |
 | Failure mode | Counterparty declines/times out → fall back to a normal payment | No peers / round failure → nothing happens; no theft either way (atomic signing) |
-| Token coverage | SLP/ALP supported under our accounting rules (token OP_RETURN untouched) | XEC today; ALP-token Fusion implementation started (eCash recap, July 2026) |
+| Token coverage | XEC payments in the MVP; token PayJoin deferred — a contribution is restricted to non-token XEC inputs (S5 in [payjoin.md](payjoin.md)) | XEC today; ALP-token fusion reported as in progress by the eCash project (July 2026 recap) — not implemented or verified in our stack |
 | Effort in our stack | Low–moderate: builds on PSBT + [client-verification.md](client-verification.md) + envelopes | High: fusion protocol engine, Tor, round scheduling, UTXO management |
 
 ## Where they overlap
@@ -41,21 +41,21 @@ other does not.
 
 Roles in practice:
 
-- PayJoin = the **payment layer**: per-transaction, merchant-friendly, works for
-  tokens, and (phase 2) multisig. Day-one privacy for every send when the counterparty
-  supports it.
+- PayJoin = the **payment layer**: per-transaction, merchant-friendly, and (phase 2)
+  multisig. Day-one privacy for every XEC send when the counterparty supports it; token
+  sends join later, once contributed-input token accounting is designed.
 - CashFusion = the **provenance/storage layer**: batch-oriented, requires rounds and
   Tor, best for holdings and for breaking received history. It cannot replace PayJoin at
   the payment moment, and PayJoin cannot cleanse a coin's history.
 
 ## Coverage in our roadmap
 
-- PayJoin: `payjoin.md`, single-sig first, on top of PSBT + envelopes; opt-in per send
-  with automatic fallback.
+- PayJoin: `payjoin.md`, single-sig + XEC-only first, on top of PSBT + envelopes; opt-in
+  per send with automatic fallback; token PayJoin deferred, not assumed.
 - CashFusion: not implemented here; track it as an eCash ecosystem integration
-  (Electrum ABC today; ALP token fusion per the July 2026 recap). If adopted, it is a
-  wallet-level feature (round scheduling, Tor, UTXO manager) that coexists with the L2
-  node — the node only relays/notifies, it never mixes funds.
+  (Electrum ABC today; ALP token fusion reported as in progress by the eCash project).
+  If adopted, it is a wallet-level feature (round scheduling, Tor, UTXO manager) that
+  coexists with the L2 node — the node only relays/notifies, it never mixes funds.
 
 ## Caveats to keep honest
 
