@@ -10,7 +10,7 @@ other does not.
 
 ## Comparison
 
-| Dimension | PayJoin (ours, via PSBT) | CashFusion (live on eCash since 2024; ALP fusion in progress) |
+| Dimension | PayJoin (ours, via PSBT) | CashFusion (live on eCash since 2024; ALP fusion reported in progress) |
 |---|---|---|
 | Shape | 2-party collaborative payment; the receiver contributes input(s) | N-party fusion round; many wallets combine inputs and receive randomized/split outputs |
 | Coordination | None; counterparty exchange over encrypted envelopes | None (serverless); peer discovery over Tor |

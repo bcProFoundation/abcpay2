@@ -50,6 +50,7 @@ Sender                                         Receiver
   |                                               |    no extra outputs, fee sane
   |                                               | 4. add >=1 own non-token XEC input,
   |                                               |    adjust own change, rebalance fee,
+  |                                               |    shuffle input/output order, then
   |                                               |    sign own input(s)
   |<-- 5. envelope(psbt', expect=finalize) -------|
   | 6. verify PSBT': my inputs unchanged, payment |
@@ -59,6 +60,15 @@ Sender                                         Receiver
   | 7. sign my inputs, assemble, broadcast        |
   |--- 8. envelope(receipt, txid) --------------->|
 ```
+
+**Ordering freeze.** `SIGHASH_ALL|FORKID` commits to input/output order, so ordering
+is part of what the signatures attest: the receiver shuffles in step 4 *before*
+signing, and after step 5 the sender must not reorder anything — step 7 may only fill
+in the sender's own scriptSigs (other inputs' scriptSigs are not covered by the BIP143
+preimage, so this does not invalidate the receiver's signatures). The sender verifies
+S9 against the received order and then does not touch it; any post-verification reorder
+breaks the receiver's signatures and the broadcast fails. A shuffled-after-signing PSBT
+is therefore rejected by S9 verification, not by a separate rule.
 
 Fallback/abort rules:
 
@@ -81,7 +91,8 @@ intent:
   receiver may only *add inputs* and *adjust receiver-owned outputs*). Concretely: the
   returned unsigned tx must contain the sender's original inputs unchanged and the
   original outputs except as allowed by S3/S4.
-- **S2** Payment output: exact `atoms/satoshis` as agreed, and the payment script must
+- **S2** Payment output: exact satoshis as agreed (XEC-only MVP; token amounts return
+  with the deferred token phase), and the payment script must
   be **byte-equal to the script of one of the receiver's own contributed inputs**
   (decoded scripts, lowercase hex — same comparison as R1). This is the MVP decision, and
   it is what ties the payment to a UTXO the receiver demonstrably controls and has signed
@@ -92,7 +103,8 @@ intent:
 - **S3** Sender change: unchanged, or reduced by exactly the receiver's contribution
   necessary to keep the tx funded (never redirected to a non-sender output).
 - **S4** Output set: no outputs added/removed beyond (a) payment, (b) sender change,
-  (c) receiver change; OP_RETURN (token sends) byte-identical to the sender's original.
+  (c) receiver change. (OP_RETURN byte-identity belongs to the deferred token phase;
+  the XEC-only MVP has no OP_RETURN.)
 - **S5** Input set: superset of sender inputs; all *new* inputs must be
   receiver-attributable (present in the receiver's contribution envelope/signature),
   never a third party's, **and must be plain non-token XEC** — an input carrying an
@@ -133,7 +145,9 @@ Attack table:
 
 PayJoin is detectable; reduce the obvious tells:
 
-- Randomize output order and input order in the final tx.
+- Randomize output order and input order — but only before signing (receiver, step 4);
+  see the ordering freeze above. Shuffling after anyone has signed breaks their
+  signatures instead of improving privacy.
 - Avoid the "receiver contributes exactly one input" signature when practical
   (receiver contributes 1–2 inputs based on their UTXO set; do not force equal in/out
   counts).

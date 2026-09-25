@@ -46,16 +46,24 @@ The client runs these before showing the confirm screen; any failure blocks sign
   independently: `sum(inputs) − fee` and must be ≥ dust.
 - **R3** Total outputs = payment + at most one change output + (token sends only)
   OP_RETURN. No other output types.
-- **R4** Change output (if any) pays a **fresh, never-used** wallet address: the next
-  unused index on the wallet's change branch (`wallets.changeAddressIndex`), and the
-  script must not appear in the wallet's known address set, in any previous proposal or
-  tx history, or on-chain for the wallet. Run the derivation check (`xPubKeys`, `m`, `n`,
-  path at the expected next index) **and** the freshness check. A change output to a
-  reused or previously exposed address is a failure even though it is wallet-owned —
-  address reuse is the main clustering leak this design is trying to avoid.
+- **R4** Change output (if any) pays a **fresh, never-used** wallet address: a never-used
+  index on the wallet's change branch at or above the wallet's change pointer
+  (`wallets.changeAddressIndex`), and the script must not appear in the wallet's known
+  address set, in any previous proposal or tx history, or on-chain for the wallet. Run
+  the derivation check (`xPubKeys`, `m`, `n`, path at a valid index) **and** the
+  freshness check. Strict "exactly the next index" is wrong on purpose: two proposals
+  in flight (two devices, two copayers) legitimately advance past each other, so the
+  rule is "unused and ≥ pointer", with the pointer advancing on confirmation. In P0 the
+  node keeps allocating change addresses (the proposal carries `changeAddress`); the
+  client verifies the allocation instead of trusting it. A change output to a reused or
+  previously exposed address is a failure even though it is wallet-owned — address
+  reuse is the main clustering leak this design is trying to avoid.
 - **R5** `fee = sum(inputs) − sum(outputs)`; `fee > 0`, `fee ≤ feeCap`, and
-  `fee ≥ estimatedSize × minRelayFeePerKb`, where `estimatedSize` is **not** the current
-  `estimateTxSize(inputCount, outputCount, n, m)` alone: that helper counts
+  `fee ≥ ceil(estimatedSize × minRelayFeePerKb / 1000)` — the rate is per kilobyte, so
+  the division (rounded up) is part of the rule. `minRelayFeePerKb` comes from the
+  node's `/v2/feelevels/` response with the network default as the floor, cross-checked
+  against a second source when available (same posture as R12). `estimatedSize` is
+  **not** the current `estimateTxSize(inputCount, outputCount, n, m)` alone: that helper counts
   `10 + 34 × outputs + inputs` and ignores the OP_RETURN output, so token sends add
   `compactSize(scriptLen) + scriptLen` (our own OP_RETURN, recomputed per R8) to the size
   before the floor is applied. Under-estimating here lets the node set a fee that looks
@@ -83,10 +91,15 @@ The client runs these before showing the confirm screen; any failure blocks sign
   `(protocol, tokenId, atoms[recipient, change])` with `slpSendScript`/`alpSendScript`
   and requires a byte-equal match to the proposal's `scriptHex`.
 - **R9** Recipient token output: exact address, `atoms` equal to the user's amount,
-  `satoshis ≥ dust`. Token change output: wallet-owned address and
+  `satoshis ≥ dust`. Token change output: fresh, never-used wallet address per R4
+  (token change reuses the clustering leak, so it gets the same freshness rule) and
   `atoms = tokenInputs − recipientAtoms` exactly (computed from the proposal's inputs).
 - **R10** Token inputs carry the same `tokenId` and no mint batons; XEC inputs are
-  plain; total in ≥ dust × token outputs + fee.
+  plain; total in ≥ dust × token outputs + fee. **Token input atoms are chain-verified
+  like R6**: the client corroborates each input's atoms from the prev tx's OP_RETURN
+  (decoded with the token encoders) or Chronik token data. R8/R9 recompute from the
+  proposal's atoms, so an uncorroborated input amount would let a consistent lie pass
+  both — unverifiable token input atoms are a hard failure, same as R6.
 
 **Common**
 
@@ -101,9 +114,12 @@ The client runs these before showing the confirm screen; any failure blocks sign
 - **R13** The proposal must belong to **this** wallet before anything else is checked:
   `proposal.walletId` equals the local wallet id (a proposal addressed to another wallet,
   or with a missing/foreign id, is rejected outright), the coin/network match, and every
-  copayer in `wallet.publicKeyRing` is a member of the local wallet. This closes the gap
-  where a valid-looking proposal for a *different* wallet (or a replayed one from another
-  wallet's flow) is signed by a client that only verifies amounts and outputs.
+  copayer key the proposal attributes a signature or action to is in the local member
+  set. The reference set is the client's **local join record** (`m`, `n`, member xPubs
+  learned at create/join), not the node's ring response — checking untrusted data
+  against itself proves nothing. This closes the gap where a valid-looking proposal for
+  a *different* wallet (or a replayed one from another wallet's flow) is signed by a
+  client that only verifies amounts and outputs.
 
 ## Failure handling
 

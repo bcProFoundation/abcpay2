@@ -76,7 +76,8 @@ JSON body, size-capped (see **Size classes** below; both limits are advertised i
   "expiresAt": 1758704800,
   "enc": {
     "alg": "secp256k1-ecdh-hkdf-aes256gcm",
-    "epk": "<33-byte ephemeral pubkey>",
+    "epk": "<33-byte fresh-random ephemeral pubkey, single use>",
+    "salt": "<32 fresh-random bytes for HKDF>",
     "iv": "<12 bytes for AES-GCM, 24 for XChaCha20>",
     "ct": "<ciphertext with appended 16-byte tag>"
   },
@@ -87,7 +88,7 @@ JSON body, size-capped (see **Size classes** below; both limits are advertised i
 **Canonical header and signature (normative).** The signed message is the header
 serialized as **UTF-8 JSON with exactly the key order shown above, no whitespace, no
 trailing newline**: `{"v":…,"id":…,"type":…,"from":…,"to":…,"createdAt":…,"expiresAt":…,"enc":{...}}`
-with `enc` sub-object in the order `alg, epk, iv, ct`. Integers are decimal numbers, all
+with `enc` sub-object in the order `alg, epk, salt, iv, ct`. Integers are decimal numbers, all
 hex is lowercase, and no field may be omitted, null, or reordered. The signature is made
 with the primitives already in `abcpay-wallet-core/src/auth.ts` — ECDSA secp256k1 over
 `hash256(utf8(canonicalHeader))`, serialized as DERSig hex (`signMessage` /
@@ -115,7 +116,7 @@ Plaintext payloads by `type` (decrypted only by the recipient):
   "network": "livenet",
   "address": "ecash:q…",        // fresh receive address of the requester
   "amount": 1250,                // sats, or null for "any amount"
-  "tokenId": null, "atoms": null, // token requests use these instead of amount
+  "tokenId": null, "atoms": null, // token requests: token id + decimal-string atoms instead of amount (u64 does not fit JSON numbers)
   "memo": "Lunch",
   "expiresAt": 1758704800,
   "requestId": "9f2…"            // idempotency / receipt correlation
@@ -134,8 +135,12 @@ Plaintext payloads by `type` (decrypted only by the recipient):
 { "walletId": "…", "coin": "xec", "name": "Shared wallet", "copayerId": "…", "secret": "…" }
 
 // psbt / psbt_bundle  (see psbt.md)
-{ "proposalId": "…", "psbt": "<base64>", "round": 1, "expect": "signature" }
+{ "proposalId": "…", "psbt": "<base64>", "round": 1, "expect": "contribute" }
 ```
+
+`expect` vocabulary: `contribute` (PayJoin step 2), `finalize` (PayJoin step 5),
+`signature` (offline co-signing delivery), `ack` (round acknowledgement). Recipients
+ignore unknown values rather than guessing.
 
 Rules:
 
@@ -146,6 +151,16 @@ Rules:
   operator sees both ends — see Privacy analysis).
 - Replay protection: unique `id` (UUIDv7), TTL, dedupe on insert; recipients ack to
   delete.
+- Two different expiries: header `expiresAt` is the **relay TTL** (the node enforces it
+  and the sweeper deletes past it); body `expiresAt` is the **request validity** (the
+  payer enforces it in step 2 and refuses an expired request even if the relay still
+  holds it). The relay TTL must be ≥ the request validity, or the request can vanish
+  before it expires.
+- Replay memory has two owners: node-side dedupe (unique `envelope_id`) disappears with
+  the row on ack, so clients keep a seen-`id` set per proposal/request until expiry and
+  reject repeats themselves — S8's "fresh envelope id/round" check in
+  [payjoin.md](payjoin.md) is the client side of this. A replay after ack is a
+  client-side rejection, not a node-side one.
 - Signatures make authors accountable even to a third party (the node can rate-limit
   per identity and ban abusive ones without reading content).
 
@@ -208,6 +223,13 @@ to join. If a secret-bearing link must be supported for legacy QR compatibility,
 the secret as single-use, rotate it immediately after a successful join, and serve the
 page with `Referrer-Policy: no-referrer`.
 
+The flow needs one prior step the link cannot provide: the inviter must learn the
+recipient's **envelope identity pubkey** (plus which node to post to) out of band —
+recipient QR, pasted text, or in person — and SHOULD confirm it via
+`GET /v5/identities/:identity` before posting. Looking an identity up by `copayerId`
+is deliberately not offered: a node-side handle→key directory would leak the
+membership mapping to anyone who can guess handles.
+
 ## Privacy analysis (honest)
 
 - **Provides**: payment intent and memo confidentiality; no on-chain invoice
@@ -222,6 +244,23 @@ page with `Referrer-Policy: no-referrer`.
 - **Recommendation**: treat envelope keys and content as private but assume routing
   metadata is visible to the operator and to a global passive adversary.
 
+## Implementation notes
+
+- New module `packages/abcpay-wallet-core/src/envelope.ts` (shared by the web client
+  and API tests): identity derivation (the `m/2'/0` branch), ECDH via noble
+  `secp256k1.getSharedSecret`, HKDF-SHA256 via `@noble/hashes`, the canonical-header
+  codec, and the AEAD round-trip. No new crypto primitives — only the composition
+  described above, which is what the external review covers.
+- AEAD provider: **WebCrypto `subtle` AES-256-GCM**, available in Node 22+ and all
+  browsers with no new dependency. XChaCha20-Poly1305 stays a deferred `alg` value: it
+  needs `@noble/ciphers`, which is not a dependency today.
+- The ephemeral `epk` **MUST be fresh-random per envelope** and never reused, even to
+  the same recipient: reuse destroys the per-envelope key separation the `info` binding
+  assumes and tells an observer that two envelopes share a sender secret.
+- HKDF takes the 32-byte fresh-random `salt` carried in `enc.salt` (covered by the
+  canonical header and AAD like every other `enc` field). Empty-salt operation is not
+  permitted, so key separation does not depend on `epk` handling alone.
+
 ## Test plan
 
 Unit (`wallet-core` / `abcpay-api`):
@@ -230,7 +269,8 @@ Unit (`wallet-core` / `abcpay-api`):
   `to`/`id`/`type`/`expiresAt` after encryption → decryption fails), canonical signature
   verification with byte-exact fixtures (field order/whitespace/case variants must fail),
   replay/dedupe, TTL expiry, quota enforcement, size limits (16 KiB message accepted,
-  64 KiB PSBT accepted, over-limit → 413).
+  64 KiB PSBT accepted, over-limit → 413). Freshness: two envelopes to the same
+  recipient never share `epk` or `salt`; a fixture that reuses either must fail.
 - Identity derivation vectors (mnemonic → envelope key) with fixtures, including the
   per-copayer rule (two copayers → two identities; same copayer restored → same identity).
 - Receipt reconciliation: a receipt whose `txid` does not pay the request is rejected; a

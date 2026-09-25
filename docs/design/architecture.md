@@ -96,7 +96,7 @@ Node failure modes and consequences:
 | Passive chain analyst | [payjoin.md](payjoin.md) (heuristic break); wallet hygiene (fresh change, no address reuse) |
 | Malicious counterparty | PayJoin sender/receiver verification rules; signed payment requests |
 | Network/relay observer | E2E-encrypted envelopes ([payment-requests.md](payment-requests.md)); self-hosting; Tor (roadmap) |
-| Spammer / DoS | Authenticated requests, quotas, paid envelopes (anti-spam below) |
+| Spammer / DoS | Identity + IP + node-wide quotas, creation throttling, paid envelopes (anti-spam below) |
 | Device thief | Out of scope here (wallet encryption at rest is a separate workstream) |
 
 ## Wire surface and versioning
@@ -159,8 +159,8 @@ copayer belongs to exactly one wallet.
 - **Authentication** = signature over a versioned message:
   `v5|<method>|<path>|<ts>|<nonce>|<body>`, ECDSA over `hash256(utf8(...))`, DERSig hex
   (the same primitives as `abcpay-wallet-core/src/auth.ts`; no new signature scheme).
-  The node rejects `ts` outside a bounded window (default ±300s) and replays a
-  `(identity, nonce)` pair for longer than that window. `x-identity` must exist in
+  The node rejects `ts` outside a bounded window (default ±300s) and rejects a
+  repeated `(identity, nonce)` pair seen within that window. `x-identity` must exist in
   `identities`; v1–v4 continue to accept `copayerId`s unchanged.
 - **Authorization is per-route, never header-derived.** The `x-wallet-id` / `x-copayer-id`
   headers stay *consistency checks only* (reject on mismatch, as today) and are never the
@@ -173,10 +173,13 @@ copayer belongs to exactly one wallet.
   wallet or envelope id exists (enumeration hygiene).
 - **Rate limits key on identity *and* source IP**, with a node-wide cap, because identity
   creation is currently free and public (see below). `Retry-After` on 429.
-- **Body binding is byte-exact**: the signed body is the exact request body
-  (re-serialized JSON from the cloned request, as today), never a re-ordered or
-  whitespace-normalized copy; unknown fields are signed, so a node cannot strip a field
-  the client believed it signed.
+- **Body binding is byte-exact over raw bytes**: v5 signs the raw UTF-8 request body
+  exactly as received (empty body signs as the empty string), and the middleware must
+  read the raw text rather than re-parsing JSON — re-serialized JSON normalizes
+  whitespace and is not a stable signature input. `<path>` is normalized as
+  `pathname + search`, exactly as the router sees it. v1–v4 keep the existing
+  re-serialized form unchanged. Unknown fields are signed, so a node cannot strip a
+  field the client believed it signed.
 - **Envelope content authorization is the recipient's business**: the node must not be
   able to read, and a recipient must not be able to be impersonated by the node — the
   AEAD AAD + per-header signature
@@ -199,7 +202,9 @@ MVP (no new payment flow):
     flight), plus a node-wide pending cap, all advertised in `node-info.limits`.
   - Creation throttling: per-IP wallet-creation budget and a global cap, with 429 +
     `Retry-After`; optionally an invite/paid-creation tier.
-  - A cheap proof-of-cost for the free tier (see phase 2) so identity churn is not free.
+  - A cheap proof-of-cost for the free tier so identity churn is not free: tight
+    per-IP creation budgets and free-tier quotas now; stronger cost (paid stamps) in
+    phase 2.
 - TTL + ack-based deletion bound storage.
 
 Phase 2 (CashWeb/Stamp pattern): **paid envelopes** — the sender attaches a tiny XEC
@@ -214,8 +219,8 @@ free quota. Notes:
 
 ## Metadata and logging policy
 
-- The node stores only: recipient identity key (opaque), TTL, size, timestamps, and
-  the encrypted blob. Payload contents are never logged.
+- The node stores only: recipient and sender identity keys (opaque), TTL, size,
+  timestamps, and the encrypted blob. Payload contents are never logged.
 - Access logs are minimal by default (no envelope bodies, no wallet contents in
   errors); operators can configure retention.
 - Documented residual risk: an observer at the node sees *that* identity A sent a
@@ -307,7 +312,7 @@ current e2e fixtures keep working untouched.
 |---|---|---|---|
 | 001 | `identities` | new table: `id uuid pk`, `identity_key varchar(66) unique`, `request_pub_key text`, `encryption_pub_key text`, `kind varchar(16) default 'copayer'`, `label`, `created_at`, `last_seen_at` | one row per envelope identity (per-copayer rule); `kind` separates `copayer` from standalone/self-registered |
 | 002 | `copayers` envelope keys | add `copayers.envelope_identity varchar(66) null`, `copayers.encryption_pub_key text null` | nullable → no rewrite; the copayer's app registers/announces lazily (on first authenticated request or first discovery call), so no backfill job is required |
-| 003 | `envelopes` | new table: `id uuid pk`, `envelope_id varchar(64) unique`, `recipient_identity varchar(66)`, `sender_identity varchar(66) null`, `type_tag varchar(32)`, `blob text`, `size integer`, `created_at`, `expires_at`, `acked_at` | indexes on `(recipient_identity, created_at)` and `(expires_at)`; `blob` is ciphertext only; sweeper deletes expired/acked rows |
+| 003 | `envelopes` | new table: `id uuid pk`, `envelope_id varchar(64) unique`, `recipient_identity varchar(66)`, `sender_identity varchar(66) not null`, `type_tag varchar(32)`, `blob text`, `size integer`, `created_at`, `expires_at`, `acked_at` | indexes on `(recipient_identity, created_at)` and `(expires_at)`; `blob` is ciphertext only; sweeper deletes expired/acked rows |
 | 004 | `tx_proposals` PSBT | add `psbt text null` (base64), `psbt_sha256 varchar(64) null`, `format varchar(16) not null default 'json'` | `format` stays `json` for existing rows; `psbt` is the additive API field; the sha256 pins byte-identity between the stored blob and what clients assemble |
 
 Rules for this set:
