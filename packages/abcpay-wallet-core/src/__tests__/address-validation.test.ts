@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { decodeAddress, deriveWalletAddress, encodeHashAddress } from '@bcpros/abcpay-wallet-core';
-import { addressMatchesDerivation, scriptKey } from '../address-validation';
+import { decodeAddress, deriveWalletAddress, encodeHashAddress } from '../address';
+import { addressMatchesDerivation, scriptKey } from '../address';
 
 const XPUB_899_1OF1 =
   'xpub6CAze4BpcKMCeXFLj2Ww1vWVBUojskTKjB4LixbgjZgQogGMpSKCzCYC6a7MnX9Pi2E7WREFVegFcSaKqSeSnk5sdnHETA8sfK3qUQPP7PY';

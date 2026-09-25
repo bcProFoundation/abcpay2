@@ -175,6 +175,7 @@ export const api = {
         address: string;
         path?: string;
         publicKeys?: string[];
+        token?: { tokenId: string; atoms: string; isMintBaton: boolean };
       }>
     >('/v1/utxos/', {}, headersFromAuth(auth));
   },

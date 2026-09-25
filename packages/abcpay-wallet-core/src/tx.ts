@@ -5,6 +5,8 @@ import {
   compactSize,
   concatBytes,
   hexToBytes,
+  readCompactSize,
+  readVarSlice,
   reverseBytes,
   u32LE,
   u64LE
@@ -225,6 +227,83 @@ export function assembleTxHex(tx: UnsignedTx, signatures: Array<Record<string, s
 
 export function txidFromRaw(rawHex: string): string {
   return bytesToHex(reverseBytes(hash256(hexToBytes(rawHex))));
+}
+
+export function serializeUnsignedTx(tx: UnsignedTx): Uint8Array {
+  return serializeTx({
+    version: tx.version ?? (tx.coin === 'xec' ? 2 : 1),
+    coin: tx.coin,
+    outputs: tx.outputs,
+    locktime: tx.locktime ?? 0,
+    inputs: tx.inputs.map(input => ({ input, scriptSig: new Uint8Array(0) }))
+  });
+}
+
+export interface ParsedTxInput {
+  txid: string;
+  vout: number;
+  scriptHex: string;
+  sequence: number;
+}
+
+export interface ParsedTxOutput {
+  sats: number;
+  scriptHex: string;
+}
+
+export interface ParsedTx {
+  version: number;
+  inputs: ParsedTxInput[];
+  outputs: ParsedTxOutput[];
+  locktime: number;
+}
+
+export function deserializeTx(raw: Uint8Array | string): ParsedTx {
+  const bytes = typeof raw === 'string' ? hexToBytes(raw) : raw;
+  let offset = 0;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const need = (n: number) => {
+    if (offset + n > bytes.length) throw new Error('Read past end of transaction');
+  };
+  const readU32 = () => {
+    need(4);
+    const value = view.getUint32(offset, true);
+    offset += 4;
+    return value;
+  };
+  const readU64 = () => {
+    need(8);
+    const value = view.getBigUint64(offset, true);
+    offset += 8;
+    return value;
+  };
+
+  const version = readU32();
+  const inputCount = readCompactSize(bytes, offset);
+  offset += inputCount.size;
+  const inputs: ParsedTxInput[] = [];
+  for (let i = 0; i < inputCount.value; i++) {
+    need(36);
+    const txid = bytesToHex(reverseBytes(bytes.slice(offset, offset + 32)));
+    offset += 32;
+    const vout = readU32();
+    const script = readVarSlice(bytes, offset);
+    offset += script.size;
+    const sequence = readU32();
+    inputs.push({ txid, vout, scriptHex: bytesToHex(script.value), sequence });
+  }
+  const outputCount = readCompactSize(bytes, offset);
+  offset += outputCount.size;
+  const outputs: ParsedTxOutput[] = [];
+  for (let i = 0; i < outputCount.value; i++) {
+    const sats = readU64();
+    const script = readVarSlice(bytes, offset);
+    offset += script.size;
+    outputs.push({ sats: Number(sats), scriptHex: bytesToHex(script.value) });
+  }
+  const locktime = readU32();
+  if (offset !== bytes.length) throw new Error('Trailing bytes after transaction');
+  return { version, inputs, outputs, locktime };
 }
 
 export function estimateTxSize(inputCount: number, outputCount: number, n = 1, m = 1): number {

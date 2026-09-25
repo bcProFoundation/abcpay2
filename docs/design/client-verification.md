@@ -134,8 +134,11 @@ The client runs these before showing the confirm screen; any failure blocks sign
 
 - Move `addressMatchesDerivation` / `scriptKey` from
   `apps/abcpay-api/src/lib/address-validation.ts` into `abcpay-wallet-core` (shared by
-  server and client), alongside a new `verifyProposal({ intent, proposal, wallet })`
-  returning `{ ok } | { ok: false, rule, detail }`. Reuse `scriptPubKeyHexFromAddress`
+  server and client), alongside a new `verifyProposal({ intent, proposal, wallet, chain })`
+  returning `{ ok: true, verifiedTx, feeSat, feeTargetSat, feeCapSat, estimatedSize,
+  feeAboveTarget }` or `{ ok: false, rule, detail }`. `chain` carries the client's
+  independently sourced input amounts/token atoms and the fee-rate band (R6, R10, R12).
+  Reuse `scriptPubKeyHexFromAddress`
   (wallet-core `address.ts`) for every script comparison so R1/R4/R6 share one decoder.
 - The verifier needs a **used-address set** for R4 freshness (wallet `addresses` table +
   the wallet's proposal/tx history + on-chain scan). Cache it per wallet; the next change

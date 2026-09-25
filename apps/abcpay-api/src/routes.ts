@@ -35,6 +35,33 @@ export function createApp() {
 
   app.get('/health', c => c.json({ status: 'ok', version: '0.2.0', coins: ['xec', 'doge'] }));
 
+  app.get('/v5/node-info', c =>
+    c.json(
+      {
+        name: 'cws',
+        version: '0.3.0',
+        chain: ['XEC', 'DOGE'],
+        features: {
+          notifications: true,
+          psbt: false,
+          envelopes: false,
+          payjoin: false,
+          paidEnvelopes: false
+        },
+        limits: {
+          maxEnvelopeBytes: 16384,
+          maxPsbtEnvelopeBytes: 65536,
+          envelopeTtlSeconds: 604800,
+          envelopesPerHour: 60,
+          maxPendingPerIdentity: 200,
+          maxPendingTotal: 10000
+        }
+      },
+      200,
+      { 'Cache-Control': 'public, max-age=300' }
+    )
+  );
+
   const handleCreateWallet = async (c: { req: { json: () => Promise<unknown> }; json: (body: unknown, status?: number) => Response }) => {
     try {
       const body = createWalletRequestSchema.parse(await c.req.json());

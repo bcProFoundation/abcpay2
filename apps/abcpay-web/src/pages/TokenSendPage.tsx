@@ -81,7 +81,9 @@ export function TokenSendPage() {
         tokenId,
         toAddress: recipient,
         atoms: atoms.toString(),
-        message: message.trim() || undefined
+        message: message.trim() || undefined,
+        protocol: token?.protocol ?? 'SLP',
+        tokenType: token?.tokenType
       });
 
       setSentAtoms(atoms.toString());

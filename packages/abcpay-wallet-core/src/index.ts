@@ -7,5 +7,7 @@ export * from './address';
 export * from './tx';
 export * from './coinselect';
 export * from './tokens';
+export * from './verify';
+export * from './psbt';
 export * from './auth';
 export * from './chronik';

@@ -41,3 +41,42 @@ export function verifyRequest(
 ): boolean {
   return verifyMessage(requestMessage(method, path, body), signatureHex, requestPubKeyHex);
 }
+
+export function requestMessageV5(
+  method: string,
+  path: string,
+  ts: number | string,
+  nonce: string,
+  body = ''
+): string {
+  return `v5|${method.toLowerCase()}|${path}|${ts}|${nonce}|${body}`;
+}
+
+export function signRequestV5(
+  requestPrivKeyHex: string,
+  method: string,
+  path: string,
+  ts: number,
+  nonce: string,
+  body = ''
+): string {
+  return signMessage(requestMessageV5(method, path, ts, nonce, body), requestPrivKeyHex);
+}
+
+export function verifyRequestV5(
+  requestPubKeyHex: string,
+  signatureHex: string,
+  method: string,
+  path: string,
+  ts: number,
+  nonce: string,
+  body = ''
+): boolean {
+  return verifyMessage(requestMessageV5(method, path, ts, nonce, body), signatureHex, requestPubKeyHex);
+}
+
+export const V5_MAX_SKEW_MS = 300_000;
+
+export function isTimestampFresh(ts: number, nowMs: number): boolean {
+  return Number.isFinite(ts) && Math.abs(nowMs - ts) <= V5_MAX_SKEW_MS;
+}

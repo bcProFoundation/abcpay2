@@ -111,7 +111,7 @@ the byte-identity test below is the migration safety net.
 ## Module layout
 
 - `packages/abcpay-wallet-core/src/psbt.ts` (new):
-  - `txToPsbt({ tx, prevTxsById, inputPaths, outputMeta })` — build via
+  - `txToPsbt({ tx, prevTxsById, proposalIdHex, outputMeta })` — build via
     `Psbt.fromTx`, then attach proprietary output/global pairs.
   - `parsePsbt(bytes | base64) / serializePsbt(psbt)` — thin, strict wrappers over
     `Psbt.fromBytes` / `psbt.toBytes()` (strict base64: no whitespace tolerance).
@@ -119,13 +119,14 @@ the byte-identity test below is the migration safety net.
     `addMultisigSignature`; rejects a signature whose pubkey is not in the redeem
     script.
   - `combinePsbts(a, b)` — requires the **same unsigned tx**: compare the serialized
-    unsigned-tx bytes (not object identity) and the same input count. Inputs are matched
-    by outpoint, canonically the 36-byte `txid(32, display order) ‖ vout(u32le)`, so a
-    copy with reordered inputs still combines. Union per input: `0x00`, `0x04`, `0x06`,
-    and the `0x02` maps. Any proprietary/unknown pair that differs byte-for-byte between
-    the two PSBTs → reject (no silent last-writer-wins). A conflicting `0x03` (sighash
-    type) or `0x07` (final scriptSig) on the same input likewise rejects — combining
-    must never pick a winner silently.
+    unsigned-tx bytes (not object identity) and the same input count. A copy with
+    *reordered* inputs is a different unsigned tx (input order is committed to by
+    `SIGHASH_ALL|FORKID`) and is rejected outright — its signatures would not be valid
+    for the surviving order. Union per input: `0x00`, `0x04`, `0x06`, and the `0x02`
+    maps. Any proprietary/unknown pair that differs byte-for-byte between the two PSBTs
+    → reject (no silent last-writer-wins). A conflicting `0x03` (sighash type) or `0x07`
+    (final scriptSig) on the same input likewise rejects — combining must never pick a
+    winner silently.
   - `finalizePsbt(psbt)` — `isFullySignedMultisig()` first, then `toTx()` → raw hex.
   - var-slice codecs: `bytes.ts` currently has `compactSize` (write only) and **no
     compactSize reader**. Add `readCompactSize(bytes, offset)` and `readVarSlice` to
@@ -184,9 +185,9 @@ the byte-identity test below is the migration safety net.
   emit the prefixed form.
 - Byte-identity vs legacy assembly (all parity fixtures: XEC 899/1899/145, DOGE,
   2-of-2/2-of-3, token sends).
-- `combinePsbts`: same tx with reordered inputs → combines; different unsigned tx,
-  different input count, a conflicting proprietary pair, or a conflicting `0x03`/`0x07`
-  on the same input → rejected.
+- `combinePsbts`: two partial-sig sets for the same unsigned tx combine; different
+  unsigned tx (including a reordered-inputs copy), different input count, a conflicting
+  proprietary pair, or a conflicting `0x03`/`0x07` on the same input → rejected.
 - `finalizePsbt` with insufficient signatures → error; with `m` → valid raw tx; txid
   equals legacy txid.
 - Proprietary encodings: `cws.output.atoms` round-trips for `1`, `100000000`, and large

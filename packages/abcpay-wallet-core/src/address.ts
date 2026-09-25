@@ -163,4 +163,68 @@ export function deriveWalletAddress(opts: {
   };
 }
 
+export function scriptKey(coin: SupportedCoin, address: string): string {
+  try {
+    const decoded = decodeAddress(coin, address);
+    return `${decoded.type}:${decoded.hashHex}`;
+  } catch {
+    return `raw:${address}`;
+  }
+}
+
+export function scriptPubKeyToAddress(
+  coin: SupportedCoin,
+  script: Uint8Array,
+  network: Network = 'livenet'
+): string {
+  if (
+    script.length === 25 &&
+    script[0] === 0x76 &&
+    script[1] === 0xa9 &&
+    script[2] === 0x14 &&
+    script[23] === 0x88 &&
+    script[24] === 0xac
+  ) {
+    return encodeHashAddress(coin, 'p2pkh', script.slice(3, 23), network);
+  }
+  if (
+    script.length === 23 &&
+    script[0] === 0xa9 &&
+    script[1] === 0x14 &&
+    script[22] === 0x87
+  ) {
+    return encodeHashAddress(coin, 'p2sh', script.slice(2, 22), network);
+  }
+  throw new Error('Unsupported output script');
+}
+
+export function addressMatchesDerivation(opts: {
+  coin: SupportedCoin;
+  network: 'livenet' | 'testnet';
+  xPubKeys: string[];
+  m: number;
+  n: number;
+  path: string;
+  address: string;
+}): boolean {
+  try {
+    if (opts.coin === 'xec' && opts.address.includes(':')) {
+      const expectedPrefix = COIN_CONFIGS.xec.protocolPrefix[opts.network].toLowerCase();
+      const actualPrefix = (decodeAddress(opts.coin, opts.address).prefix ?? '').toLowerCase();
+      if (actualPrefix && actualPrefix !== expectedPrefix) return false;
+    }
+    const derived = deriveWalletAddress({
+      coin: opts.coin,
+      network: opts.network,
+      xPubKeys: opts.xPubKeys,
+      m: opts.m,
+      n: opts.n,
+      path: opts.path
+    });
+    return scriptKey(opts.coin, derived.address) === scriptKey(opts.coin, opts.address);
+  } catch {
+    return false;
+  }
+}
+
 export { isValidCashAddress };
