@@ -191,7 +191,10 @@ async function openSse(
           } catch {
             continue;
           }
-          const event: SseEvent = { ...payload, type: eventName };
+          const event: SseEvent = {
+            ...payload,
+            type: (payload.type as string | undefined) ?? eventName
+          };
           events.push(event);
           for (let i = waiters.length - 1; i >= 0; i--) {
             if (waiters[i].predicate(event)) {
