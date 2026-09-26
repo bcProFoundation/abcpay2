@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   addPartialSignature,
+  applyPayjoinContribution,
+  buildPayjoinContribution,
   createCredentials,
   derivePrivateKey,
   deriveWalletAddress,
   signHash,
+  signPayjoinContribution,
   sighashForInput,
   txToPsbt,
   unsignedTxFromProposal,
@@ -346,5 +349,128 @@ describe('payjoin attack matrix', () => {
     const clone = structuredClone(s.contribution) as Psbt;
     clone.inputs[1]!.partialSigs[0]!.signatureHex = '30'.repeat(20);
     expectRule(s.verify(clone), 'S9');
+  });
+});
+
+describe('payjoin receiver contribution builder', () => {
+  function receiverScenario() {
+    const s = payjoinScenario();
+    const receiverChange = deriveWalletAddress({
+      coin: 'xec',
+      xPubKeys: [s.receiver.xPubKey],
+      m: 1,
+      n: 1,
+      path: 'm/1/0'
+    });
+    const receiverUtxo = {
+      txid: TXID_R,
+      vout: 1,
+      satoshis: 20000,
+      address: s.receiverIn.address,
+      path: 'm/0/0',
+      publicKeys: s.receiverIn.publicKeys,
+      scriptPubKeyHex: s.receiverIn.scriptPubKey!
+    };
+    return { ...s, receiverChange, receiverUtxo };
+  }
+
+  it('reproduces the verified happy-path contribution end-to-end', () => {
+    const s = receiverScenario();
+    const plan = buildPayjoinContribution({
+      coin: 'xec',
+      original: s.original,
+      paymentScriptPubKeyHex: s.receiverIn.scriptPubKey!,
+      receiverUtxos: [s.receiverUtxo],
+      changeAddress: { address: s.receiverIn.address, path: 'm/1/0' },
+      feePerKb: 2000
+    });
+    expect(plan.inputIndex).toBe(1);
+    expect(plan.feeSat).toBe(816);
+    expect(plan.receiverChangeSats).toBe(19636);
+    expect(plan.tx.outputs[2]!.satoshis).toBe(19636);
+
+    let contribution = applyPayjoinContribution(s.original, plan);
+    contribution = addPartialSignature(
+      contribution,
+      plan.inputIndex,
+      s.receiverIn.publicKeys[0]!,
+      signPayjoinContribution(plan, s.receiver.xPrivKey)
+    );
+    const result = s.verify(contribution);
+    expect(result.ok).toBe(true);
+  });
+
+  it('supports receiver change to a fresh address (S4 relaxation)', () => {
+    const s = receiverScenario();
+    const plan = buildPayjoinContribution({
+      coin: 'xec',
+      original: s.original,
+      paymentScriptPubKeyHex: s.receiverIn.scriptPubKey!,
+      receiverUtxos: [s.receiverUtxo],
+      changeAddress: { address: s.receiverChange.address, path: 'm/1/0' },
+      feePerKb: 2000
+    });
+    let contribution = applyPayjoinContribution(s.original, plan);
+    contribution = addPartialSignature(
+      contribution,
+      plan.inputIndex,
+      s.receiverIn.publicKeys[0]!,
+      signPayjoinContribution(plan, s.receiver.xPrivKey)
+    );
+    const result = s.verify(contribution);
+    expect(result.ok).toBe(true);
+    expect(contribution.unsignedTx.outputs[2]!.address).toBe(s.receiverChange.address);
+  });
+
+  it('declines when the receiver holds no UTXO at the payment script', () => {
+    const s = receiverScenario();
+    const other = deriveWalletAddress({
+      coin: 'xec',
+      xPubKeys: [s.receiver.xPubKey],
+      m: 1,
+      n: 1,
+      path: 'm/0/9'
+    });
+    expect(() =>
+      buildPayjoinContribution({
+        coin: 'xec',
+        original: s.original,
+        paymentScriptPubKeyHex: s.receiverIn.scriptPubKey!,
+        receiverUtxos: [{ ...s.receiverUtxo, scriptPubKeyHex: other.scriptPubKey! }],
+        changeAddress: { address: s.receiverChange.address, path: 'm/1/0' },
+        feePerKb: 2000
+      })
+    ).toThrow(/No receiver UTXO/);
+  });
+
+  it('respects the max contribution bound', () => {
+    const s = receiverScenario();
+    expect(() =>
+      buildPayjoinContribution({
+        coin: 'xec',
+        original: s.original,
+        paymentScriptPubKeyHex: s.receiverIn.scriptPubKey!,
+        receiverUtxos: [s.receiverUtxo],
+        changeAddress: { address: s.receiverChange.address, path: 'm/1/0' },
+        feePerKb: 2000,
+        maxContributionSats: 10000
+      })
+    ).toThrow(/No receiver UTXO/);
+  });
+
+  it('refuses token UTXOs as contributions', () => {
+    const s = receiverScenario();
+    expect(() =>
+      buildPayjoinContribution({
+        coin: 'xec',
+        original: s.original,
+        paymentScriptPubKeyHex: s.receiverIn.scriptPubKey!,
+        receiverUtxos: [
+          { ...s.receiverUtxo, token: { tokenId: 'ab'.repeat(32), atoms: '1', isMintBaton: false } }
+        ],
+        changeAddress: { address: s.receiverChange.address, path: 'm/1/0' },
+        feePerKb: 2000
+      })
+    ).toThrow(/No receiver UTXO/);
   });
 });

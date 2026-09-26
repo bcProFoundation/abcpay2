@@ -1,19 +1,24 @@
 import type { SupportedCoin } from '@bcpros/abcpay-models';
 import { scriptPubKeyHexFromAddress } from './address';
 import { equalBytes, hexToBytes } from './bytes';
-import { minRelayFeePerKb } from './coinselect';
+import { dustThreshold, minRelayFeePerKb } from './coinselect';
+import { derivePrivateKey } from './keys';
 import {
   CWS_PREFIX_PROPOSAL_ID,
   findProprietaryValue,
   psbtUtxoAt,
   pubkeyMatchesInputScript,
-  type Psbt
+  type Psbt,
+  type PsbtInputData,
+  type PsbtOutputData
 } from './psbt';
 import {
   estimateTxSize,
+  signHash,
   sighashForInput,
   verifyInputSignature,
-  type TxOutput
+  type TxOutput,
+  type UnsignedTx
 } from './tx';
 
 export interface PayjoinIntent {
@@ -168,18 +173,27 @@ export function verifyPayjoinContribution(opts: {
 
   let senderChangeSats = 0;
   let receiverChangeSats = 0;
+  let senderChangeCount = 0;
+  let receiverChangeCount = 0;
   for (const [index, output] of contributionTx.outputs.entries()) {
     if (index === paymentIndex) continue;
+    if (output.scriptHex !== undefined) {
+      return fail('S4', `output ${index} is a raw script output; not allowed in a PayJoin`);
+    }
     const scriptHex = outputScriptHex(coin, output);
     if (originalChangeScript !== undefined && scriptHex === originalChangeScript) {
       senderChangeSats += output.satoshis;
+      senderChangeCount += 1;
+      if (senderChangeCount > 1) {
+        return fail('S4', 'more than one sender change output');
+      }
       continue;
     }
-    if (newInputScripts.has(scriptHex)) {
-      receiverChangeSats += output.satoshis;
-      continue;
+    receiverChangeSats += output.satoshis;
+    receiverChangeCount += 1;
+    if (receiverChangeCount > 1) {
+      return fail('S4', 'more than one receiver change output');
     }
-    return fail('S4', `unexpected output ${index} is neither payment, sender change, nor receiver change`);
   }
   if (originalChangeScript === undefined && senderChangeSats > 0) {
     return fail('S3', 'contribution created a sender change output the original did not have');
@@ -278,4 +292,145 @@ export function verifyPayjoinContribution(opts: {
     feeCapSat,
     newInputCount: newInputIndexes.length
   };
+}
+
+export interface PayjoinReceiverUtxo {
+  txid: string;
+  vout: number;
+  satoshis: number;
+  address: string;
+  path: string;
+  publicKeys: string[];
+  redeemScript?: string;
+  scriptPubKeyHex: string;
+  token?: { tokenId: string; atoms: string; isMintBaton: boolean } | null;
+}
+
+export interface PayjoinContributionPlan {
+  tx: UnsignedTx;
+  inputIndex: number;
+  input: PayjoinReceiverUtxo;
+  feeSat: number;
+  receiverChangeSats: number;
+}
+
+export function buildPayjoinContribution(opts: {
+  coin: SupportedCoin;
+  original: Psbt;
+  paymentScriptPubKeyHex: string;
+  receiverUtxos: PayjoinReceiverUtxo[];
+  changeAddress: { address: string; path: string };
+  feePerKb?: number;
+  dustSats?: number;
+  maxContributionSats?: number;
+}): PayjoinContributionPlan {
+  const tx = opts.original.unsignedTx;
+  const paymentScript = opts.paymentScriptPubKeyHex.toLowerCase();
+  const paymentOutputs = tx.outputs.filter(
+    output => outputScriptHex(opts.coin, output) === paymentScript
+  );
+  if (paymentOutputs.length !== 1) {
+    throw new Error('Original PSBT does not have exactly one payment output at the requested script');
+  }
+  const totalIn = tx.inputs.reduce((sum, input) => sum + input.satoshis, 0);
+  const totalOut = tx.outputs.reduce((sum, output) => sum + output.satoshis, 0);
+  const originalFee = totalIn - totalOut;
+  const originalSize = estimateTxSize(tx.inputs.length, tx.outputs.length, 1, 1);
+  const baseRate = Math.max(
+    opts.feePerKb ?? 0,
+    ceilDiv(originalFee * 1000, Math.max(originalSize, 1)),
+    minRelayFeePerKb(opts.coin)
+  );
+  const dust = opts.dustSats ?? dustThreshold(opts.coin);
+
+  const candidates = opts.receiverUtxos
+    .filter(
+      utxo =>
+        utxo.scriptPubKeyHex.toLowerCase() === paymentScript &&
+        !utxo.token &&
+        (opts.maxContributionSats === undefined || utxo.satoshis <= opts.maxContributionSats)
+    )
+    .sort((a, b) => a.satoshis - b.satoshis);
+
+  for (const input of candidates) {
+    const size = estimateTxSize(tx.inputs.length + 1, tx.outputs.length + 1, 1, 1);
+    const targetFee = ceilDiv(size * baseRate, 1000);
+    const deltaFee = Math.max(0, targetFee - originalFee);
+    const receiverChange = input.satoshis - deltaFee;
+    const unsignedInput = {
+      txid: input.txid,
+      vout: input.vout,
+      satoshis: input.satoshis,
+      address: input.address,
+      path: input.path,
+      publicKeys: input.publicKeys,
+      redeemScript: input.redeemScript,
+      scriptPubKey: input.scriptPubKeyHex
+    };
+    const inputs = [...tx.inputs, unsignedInput];
+    if (receiverChange >= dust) {
+      return {
+        tx: {
+          ...tx,
+          inputs,
+          outputs: [
+            ...tx.outputs,
+            { address: opts.changeAddress.address, satoshis: receiverChange }
+          ]
+        },
+        inputIndex: tx.inputs.length,
+        input,
+        feeSat: originalFee + deltaFee,
+        receiverChangeSats: receiverChange
+      };
+    }
+    const donatedFee = originalFee + input.satoshis;
+    const donationCap = ceilDiv(size * baseRate * 3, 2000);
+    if (receiverChange >= 0 && donatedFee <= donationCap) {
+      return {
+        tx: { ...tx, inputs, outputs: [...tx.outputs] },
+        inputIndex: tx.inputs.length,
+        input,
+        feeSat: donatedFee,
+        receiverChangeSats: 0
+      };
+    }
+  }
+  throw new Error('No receiver UTXO can fund a PayJoin contribution within fee limits');
+}
+
+export function applyPayjoinContribution(
+  original: Psbt,
+  plan: PayjoinContributionPlan
+): Psbt {
+  const inputs: PsbtInputData[] = [
+    ...original.inputs,
+    {
+      utxo: { sats: plan.input.satoshis, scriptPubKeyHex: plan.input.scriptPubKeyHex },
+      redeemScriptHex: plan.input.redeemScript,
+      partialSigs: [],
+      unknownPairs: []
+    }
+  ];
+  const outputs: PsbtOutputData[] = plan.tx.outputs.map(
+    (_output, index) => original.outputs[index] ?? { unknownPairs: [] }
+  );
+  return {
+    unsignedTx: plan.tx,
+    inputs,
+    outputs,
+    globalUnknownPairs: original.globalUnknownPairs
+  };
+}
+
+export function signPayjoinContribution(
+  plan: PayjoinContributionPlan,
+  xPrivKey: string,
+  coin?: SupportedCoin
+): string {
+  return signHash(
+    derivePrivateKey(xPrivKey, plan.input.path),
+    sighashForInput(plan.tx, plan.inputIndex),
+    coin ?? plan.tx.coin
+  );
 }

@@ -7,6 +7,7 @@ import {
 } from '@bcpros/abcpay-wallet-core';
 import { db } from '../db';
 import { copayers, envelopes, identities } from '../db/schema';
+import { notificationService } from './notification.service';
 
 export const ENVELOPE_TTL_SECONDS = 604800;
 export const ENVELOPES_PER_HOUR = 60;
@@ -191,6 +192,12 @@ export class EnvelopeService {
     } catch {
       throw new EnvelopeError(409, 'Duplicate envelope id');
     }
+    notificationService.publishEnvelope({
+      type: 'envelope.received',
+      identity: envelope.to,
+      envelopeId: envelope.id,
+      envelopeType: envelope.type
+    });
     return envelope.id;
   }
 

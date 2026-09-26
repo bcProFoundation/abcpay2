@@ -1,12 +1,18 @@
 import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   assembleTxHex,
   createCredentials,
+  derivePublicKey,
   deriveWalletAddress,
+  envelopeIdentityFromMnemonic,
   mergeCopayerSignatures,
+  openEnvelope,
+  sealEnvelope,
   signRequest,
+  signRequestV5,
   signTxInputs,
   unsignedTxFromProposal,
   type UnsignedTx,
@@ -77,6 +83,41 @@ function check(label: string, ok: boolean, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`);
 }
 
+async function callV5(
+  method: string,
+  path: string,
+  opts: { body?: unknown; creds?: WalletCredentials; walletId?: string; identity?: string } = {}
+): Promise<{ status: number; json: any }> {
+  const { body, creds, walletId, identity } = opts;
+  const ts = Date.now();
+  const nonce = randomUUID().replace(/-/g, '');
+  const bodyText = body === undefined ? '' : JSON.stringify(body);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (walletId) headers['x-wallet-id'] = walletId;
+  if (identity) {
+    headers['x-identity'] = identity;
+    headers['x-copayer-id'] = identity;
+  }
+  if (creds && identity) {
+    headers['x-timestamp'] = String(ts);
+    headers['x-nonce'] = nonce;
+    headers['x-signature'] = signRequestV5(creds.requestPrivKey, method, path, ts, nonce, bodyText);
+  }
+  const res = await fetch(BASE + path, {
+    method,
+    headers,
+    body: body === undefined ? undefined : bodyText
+  });
+  const text = await res.text();
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = text;
+  }
+  return { status: res.status, json };
+}
+
 interface SseEvent {
   type: string;
   [key: string]: unknown;
@@ -90,16 +131,24 @@ interface SseClient {
 
 async function openSse(
   path: string,
-  opts: { creds: WalletCredentials; walletId: string; identity: string }
+  opts: { creds: WalletCredentials; walletId: string; identity: string; v5?: boolean }
 ): Promise<SseClient> {
   const controller = new AbortController();
   const headers: Record<string, string> = {
     Accept: 'text/event-stream',
     'x-wallet-id': opts.walletId,
     'x-identity': opts.identity,
-    'x-copayer-id': opts.identity,
-    'x-signature': signRequest(opts.creds.requestPrivKey, 'GET', path, '{}')
+    'x-copayer-id': opts.identity
   };
+  if (opts.v5) {
+    const ts = Date.now();
+    const nonce = randomUUID().replace(/-/g, '');
+    headers['x-timestamp'] = String(ts);
+    headers['x-nonce'] = nonce;
+    headers['x-signature'] = signRequestV5(opts.creds.requestPrivKey, 'GET', path, ts, nonce, '');
+  } else {
+    headers['x-signature'] = signRequest(opts.creds.requestPrivKey, 'GET', path, '{}');
+  }
 
   const res = await fetch(BASE + path, { headers, signal: controller.signal });
   if (!res.ok || !res.body) throw new Error(`SSE handshake failed with status ${res.status}`);
@@ -437,6 +486,318 @@ async function main() {
     } finally {
       sse.close();
     }
+  }
+
+  {
+    const info = await call('GET', '/v5/node-info');
+    check(
+      'v5: node-info advertises psbt + envelopes',
+      info.status === 200 && info.json?.features?.psbt === true && info.json?.features?.envelopes === true,
+      `status=${info.status} psbt=${info.json?.features?.psbt} envelopes=${info.json?.features?.envelopes}`
+    );
+  }
+
+  {
+    const seed = seeds[3];
+    const wallet = fixtureWallet(seed.fixtureId);
+    const ca = createCredentials({
+      coin: 'xec',
+      mnemonic: wallet.copayers[0].mnemonic,
+      isMultisig: true,
+      usePurpose48: true,
+      coinType: seed.coinType
+    });
+    const cb = createCredentials({
+      coin: 'xec',
+      mnemonic: wallet.copayers[1].mnemonic,
+      isMultisig: true,
+      usePurpose48: true,
+      coinType: seed.coinType
+    });
+    const idA = envelopeIdentityFromMnemonic(wallet.copayers[0].mnemonic);
+    const idB = envelopeIdentityFromMnemonic(wallet.copayers[1].mnemonic);
+
+    const announceA = await callV5('POST', '/v5/identities/', {
+      body: {
+        identityKey: idA.pubKeyHex,
+        requestPubKey: ca.requestPubKey,
+        encryptionPubKey: idA.pubKeyHex,
+        label: 'staging-e2e-a'
+      },
+      creds: ca,
+      walletId: seed.id,
+      identity: ca.copayerId
+    });
+    check(
+      'v5: copayer A announces envelope identity',
+      announceA.status === 201 && announceA.json?.identityKey === idA.pubKeyHex,
+      `status=${announceA.status}`
+    );
+    const announceB = await callV5('POST', '/v5/identities/', {
+      body: {
+        identityKey: idB.pubKeyHex,
+        requestPubKey: cb.requestPubKey,
+        encryptionPubKey: idB.pubKeyHex,
+        label: 'staging-e2e-b'
+      },
+      creds: cb,
+      walletId: seed.id,
+      identity: cb.copayerId
+    });
+    check('v5: copayer B announces envelope identity', announceB.status === 201, `status=${announceB.status}`);
+    const discovery = await callV5('GET', `/v5/identities/${idB.pubKeyHex}`, {
+      creds: ca,
+      walletId: seed.id,
+      identity: ca.copayerId
+    });
+    check(
+      'v5: identity discovery returns the encryption key',
+      discovery.status === 200 && discovery.json?.encryptionPubKey === idB.pubKeyHex,
+      `status=${discovery.status}`
+    );
+
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+    const envelope = await sealEnvelope({
+      type: 'payment_request',
+      from: idA.pubKeyHex,
+      to: idB.pubKeyHex,
+      plaintext: JSON.stringify({ memo: 'e2e-secret-marker', amount: 1250 }),
+      requestPrivKeyHex: ca.requestPrivKey,
+      expiresAt
+    });
+    const posted = await callV5('POST', '/v5/envelopes/', {
+      body: envelope,
+      creds: ca,
+      walletId: seed.id,
+      identity: ca.copayerId
+    });
+    check(
+      'v5: envelope stored',
+      posted.status === 201 && posted.json?.id === envelope.id,
+      `status=${posted.status}`
+    );
+
+    const polled = await callV5('GET', '/v5/envelopes/', {
+      creds: cb,
+      walletId: seed.id,
+      identity: cb.copayerId
+    });
+    const item = (polled.json?.envelopes ?? []).find((entry: any) => entry.id === envelope.id);
+    check('v5: recipient polls the envelope', polled.status === 200 && !!item, `count=${polled.json?.envelopes?.length}`);
+    let opened: any = null;
+    if (item) {
+      opened = JSON.parse(new TextDecoder().decode(await openEnvelope(JSON.parse(item.blob), idB.privKeyHex)));
+    }
+    check('v5: recipient decrypts with its identity key', opened?.memo === 'e2e-secret-marker');
+    check(
+      'v5: relay response carries no plaintext',
+      !JSON.stringify(polled.json).includes('e2e-secret-marker')
+    );
+
+    const acked = await callV5('POST', `/v5/envelopes/${envelope.id}/ack`, {
+      creds: cb,
+      walletId: seed.id,
+      identity: cb.copayerId
+    });
+    check('v5: envelope ack accepted', acked.status === 200, `status=${acked.status}`);
+    const afterAck = await callV5('GET', '/v5/envelopes/', {
+      creds: cb,
+      walletId: seed.id,
+      identity: cb.copayerId
+    });
+    check(
+      'v5: acked envelope no longer delivered',
+      !(afterAck.json?.envelopes ?? []).some((entry: any) => entry.id === envelope.id)
+    );
+
+    const tampered = { ...envelope, id: randomUUID(), to: idA.pubKeyHex };
+    const tamperAttempt = await callV5('POST', '/v5/envelopes/', {
+      body: tampered,
+      creds: ca,
+      walletId: seed.id,
+      identity: ca.copayerId
+    });
+    check('v5: tampered envelope signature rejected', tamperAttempt.status === 401, `status=${tamperAttempt.status}`);
+
+    const huge = await sealEnvelope({
+      type: 'memo',
+      from: idA.pubKeyHex,
+      to: idB.pubKeyHex,
+      plaintext: 'x'.repeat(20000),
+      requestPrivKeyHex: ca.requestPrivKey,
+      expiresAt
+    });
+    const tooLarge = await callV5('POST', '/v5/envelopes/', {
+      body: huge,
+      creds: ca,
+      walletId: seed.id,
+      identity: ca.copayerId
+    });
+    check('v5: oversize message envelope rejected (413)', tooLarge.status === 413, `status=${tooLarge.status}`);
+
+    const sseV5 = await openSse('/v5/notifications/', {
+      creds: cb,
+      walletId: seed.id,
+      identity: cb.copayerId,
+      v5: true
+    });
+    try {
+      const ready = await sseV5.waitFor(event => event.type === 'ready');
+      check('v5 sse: stream ready for identity', ready !== null, ready ? `identity=${ready.identity}` : 'no ready event');
+      const sseEnvelope = await sealEnvelope({
+        type: 'memo',
+        from: idA.pubKeyHex,
+        to: idB.pubKeyHex,
+        plaintext: 'sse-notice',
+        requestPrivKeyHex: ca.requestPrivKey,
+        expiresAt
+      });
+      await callV5('POST', '/v5/envelopes/', {
+        body: sseEnvelope,
+        creds: ca,
+        walletId: seed.id,
+        identity: ca.copayerId
+      });
+      const received = await sseV5.waitFor(
+        event => event.type === 'envelope.received' && event.id === sseEnvelope.id
+      );
+      check(
+        'v5 sse: envelope.received delivered',
+        received !== null,
+        received ? `id=${received.id} envelopeType=${received.envelopeType}` : 'event not delivered'
+      );
+    } finally {
+      sseV5.close();
+    }
+
+    const source = wallet.addresses.find((a: any) => a.path === 'm/0/0');
+    const dest = fixtureWallet('xec-899-1of1').addresses.find((a: any) => a.path === 'm/0/1');
+    const createdV5 = await callV5('POST', '/v5/psbt/', {
+      body: {
+        proposals: [
+          {
+            outputs: [{ toAddress: dest.address, amount: 90000 }],
+            message: 'staging e2e v5 psbt',
+            inputs: [
+              {
+                txid: '22'.repeat(32),
+                vout: 0,
+                satoshis: 100000,
+                address: source.address,
+                path: source.path,
+                publicKeys: source.publicKeys
+              }
+            ]
+          }
+        ]
+      },
+      creds: ca,
+      walletId: seed.id,
+      identity: ca.copayerId
+    });
+    check(
+      'v5 psbt: proposal created with a PSBT',
+      createdV5.status === 201 && typeof createdV5.json?.psbt === 'string' && !!createdV5.json?.psbtSha256,
+      `status=${createdV5.status}`
+    );
+
+    const txpId = createdV5.json.id;
+    const unsigned: UnsignedTx = unsignedTxFromProposal({
+      coin: 'xec',
+      inputs: createdV5.json.inputs,
+      outputs: createdV5.json.outputs,
+      amount: createdV5.json.amount,
+      fee: createdV5.json.fee,
+      changeAddress: createdV5.json.changeAddress
+    });
+    const inputPath = createdV5.json.inputs[0].path;
+    const sigsA = signTxInputs(unsigned, ca.xPrivKey);
+    const signedA = await callV5('POST', `/v5/psbt/${txpId}/sign`, {
+      body: {
+        signatures: [
+          {
+            inputIndex: 0,
+            pubKeyHex: derivePublicKey(ca.xPubKey, inputPath),
+            signatureHex: sigsA[0]
+          }
+        ]
+      },
+      creds: ca,
+      walletId: seed.id,
+      identity: ca.copayerId
+    });
+    check(
+      'v5 psbt: copayer A partial signature attached',
+      signedA.status === 200 && signedA.json?.proposal?.status === 'pending',
+      `status=${signedA.status} proposalStatus=${signedA.json?.proposal?.status}`
+    );
+    const fetched = await callV5('GET', `/v5/psbt/${txpId}`, {
+      creds: cb,
+      walletId: seed.id,
+      identity: cb.copayerId
+    });
+    check(
+      'v5 psbt: fetch returns the updated PSBT hash',
+      fetched.status === 200 && fetched.json?.psbtSha256 === signedA.json?.psbtSha256,
+      `status=${fetched.status}`
+    );
+
+    const sigsB = signTxInputs(unsigned, cb.xPrivKey);
+    const signedB = await callV5('POST', `/v5/psbt/${txpId}/sign`, {
+      body: {
+        signatures: [
+          {
+            inputIndex: 0,
+            pubKeyHex: derivePublicKey(cb.xPubKey, inputPath),
+            signatureHex: sigsB[0]
+          }
+        ]
+      },
+      creds: cb,
+      walletId: seed.id,
+      identity: cb.copayerId
+    });
+    check(
+      'v5 psbt: proposal accepted at m=2',
+      signedB.status === 200 && signedB.json?.proposal?.status === 'accepted',
+      `status=${signedB.json?.proposal?.status}`
+    );
+
+    const finalized = await callV5('POST', `/v5/psbt/${txpId}/finalize`, {
+      creds: ca,
+      walletId: seed.id,
+      identity: ca.copayerId
+    });
+    check(
+      'v5 psbt: finalize returns a raw tx',
+      finalized.status === 200 && typeof finalized.json?.raw === 'string',
+      `status=${finalized.status}`
+    );
+    const legacyRaw = assembleTxHex(
+      unsigned,
+      mergeCopayerSignatures({
+        tx: unsigned,
+        copayers: wallet.copayers.map((c: any) => ({ copayerId: c.copayerId, xPubKey: c.xPubKey })),
+        signatures: signedB.json?.proposal?.signatures ?? {}
+      })
+    );
+    check(
+      'v5 psbt: finalize is byte-identical to the legacy assembly',
+      finalized.json?.raw === legacyRaw,
+      `bytes=${String(finalized.json?.raw).length / 2}`
+    );
+
+    const relayed = await callV5('POST', `/v5/psbt/${txpId}/relay`, {
+      body: { raw: finalized.json?.raw },
+      creds: ca,
+      walletId: seed.id,
+      identity: ca.copayerId
+    });
+    check(
+      'v5 psbt: relay of a fabricated UTXO rejected by Chronik (expected)',
+      relayed.status === 400,
+      `status=${relayed.status} message=${String(relayed.json?.message).slice(0, 80)}`
+    );
   }
 
   console.log(failures === 0 ? '\nALL E2E CHECKS PASSED' : `\n${failures} E2E CHECK(S) FAILED`);

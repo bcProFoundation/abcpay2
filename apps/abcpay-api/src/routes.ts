@@ -6,6 +6,7 @@ import {
   createWalletRequestSchema,
   joinWalletRequestSchema,
   createTxProposalRequestSchema,
+  ENVELOPE_NOTIFICATION_PATH,
   NOTIFICATION_PATH,
   type NotificationEvent
 } from '@bcpros/abcpay-models';
@@ -559,6 +560,73 @@ export function createApp() {
     } catch (err) {
       return envelopeError(c, err);
     }
+  });
+
+  app.get(ENVELOPE_NOTIFICATION_PATH, async c => {
+    const caller = await envelopeService.resolveIdentityKey(v5Identity(c));
+    if (!caller) {
+      return c.json({ code: 'NOT_AUTHORIZED', message: 'Unknown envelope identity' }, 401);
+    }
+
+    return streamSSE(c, async stream => {
+      const queue: Array<{ event: string; data: string }> = [];
+      let wake: (() => void) | undefined;
+      const wakeUp = () => {
+        const resolve = wake;
+        wake = undefined;
+        resolve?.();
+      };
+
+      const unsubscribe = notificationService.subscribeIdentity(caller.identityKey, event => {
+        queue.push({
+          event: 'envelope.received',
+          data: JSON.stringify({ id: event.envelopeId, type: event.envelopeType, at: event.at })
+        });
+        wakeUp();
+      });
+      stream.onAbort(() => {
+        unsubscribe();
+        wakeUp();
+      });
+
+      try {
+        await stream.writeSSE({
+          event: 'ready',
+          data: JSON.stringify({ identity: caller.identityKey, at: Date.now() })
+        });
+
+        while (!stream.aborted && !stream.closed) {
+          if (queue.length === 0) {
+            let heartbeat: ReturnType<typeof setTimeout> | undefined;
+            await Promise.race([
+              new Promise<void>(resolve => {
+                wake = resolve;
+              }),
+              new Promise<void>(resolve => {
+                heartbeat = setTimeout(resolve, SSE_HEARTBEAT_MS);
+                heartbeat.unref?.();
+              })
+            ]);
+            wake = undefined;
+            if (heartbeat) clearTimeout(heartbeat);
+          }
+
+          if (stream.aborted || stream.closed) break;
+
+          if (queue.length === 0) {
+            await stream.write(`:heartbeat ${Date.now()}\n\n`);
+            continue;
+          }
+
+          const item = queue.shift()!;
+          await stream.writeSSE(item);
+        }
+      } catch {
+        // Client disconnected mid-write.
+      } finally {
+        unsubscribe();
+      }
+    });
   });
 
   const handleFeeLevels = async (c: { req: { query: (k: string) => string | undefined }; json: (body: unknown) => Response }) => {
