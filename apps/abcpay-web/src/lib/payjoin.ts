@@ -17,7 +17,6 @@ import {
   sealEnvelope,
   signHash,
   signPayjoinContribution,
-  signRequestV5,
   sighashForInput,
   txToPsbt,
   verifyEnvelopeSignature,
@@ -27,74 +26,14 @@ import {
   type SignedEnvelope
 } from '@bcpros/abcpay-wallet-core';
 import type { StoredCredentials } from '../context/WalletContext';
-import { API_URL, api, type AuthContext } from './api';
+import { api, type AuthContext } from './api';
+import { announceEnvelopeIdentity, fetchEnvelopeIdentity, v5Request } from './envelopes';
 import { verifyProposalBeforeSign } from './proposal-verify';
 
 const POLL_INTERVAL_MS = 1500;
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => window.setTimeout(resolve, ms));
-}
-
-export async function v5Request<T>(
-  auth: AuthContext,
-  method: string,
-  path: string,
-  body?: unknown
-): Promise<T> {
-  const ts = Date.now();
-  const nonce = crypto.randomUUID().replace(/-/g, '');
-  const bodyText = body === undefined ? '' : JSON.stringify(body);
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'x-identity': auth.copayerId,
-    'x-copayer-id': auth.copayerId,
-    'x-wallet-id': auth.walletId,
-    'x-timestamp': String(ts),
-    'x-nonce': nonce,
-    'x-signature': signRequestV5(auth.requestPrivKey, method, path, ts, nonce, bodyText)
-  };
-  const res = await fetch(`${API_URL}${path}`, {
-    method,
-    headers,
-    body: method === 'GET' ? undefined : bodyText
-  });
-  const text = await res.text();
-  const json = text ? (JSON.parse(text) as T & { message?: string; code?: string }) : ({} as T);
-  if (!res.ok) {
-    throw new Error(
-      (json as { message?: string }).message ?? `Request failed with status ${res.status}`
-    );
-  }
-  return json;
-}
-
-export interface EnvelopeIdentityInfo {
-  identityKey: string;
-  requestPubKey: string;
-  encryptionPubKey: string | null;
-}
-
-export async function fetchEnvelopeIdentity(
-  auth: AuthContext,
-  identityKey: string
-): Promise<EnvelopeIdentityInfo> {
-  return v5Request<EnvelopeIdentityInfo>(auth, 'GET', `/v5/identities/${identityKey}`);
-}
-
-export async function announceEnvelopeIdentity(opts: {
-  auth: AuthContext;
-  mnemonic: string;
-  requestPubKey: string;
-  label?: string;
-}): Promise<EnvelopeIdentityInfo> {
-  const identity = envelopeIdentityFromMnemonic(opts.mnemonic);
-  return v5Request<EnvelopeIdentityInfo>(opts.auth, 'POST', '/v5/identities/', {
-    identityKey: identity.pubKeyHex,
-    requestPubKey: opts.requestPubKey,
-    encryptionPubKey: identity.pubKeyHex,
-    label: opts.label
-  });
 }
 
 async function senderTokenStatus(

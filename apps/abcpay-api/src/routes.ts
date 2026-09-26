@@ -49,7 +49,7 @@ export function createApp() {
           notifications: true,
           psbt: true,
           envelopes: true,
-          payjoin: false,
+          payjoin: 'single-sig',
           paidEnvelopes: false
         },
         limits: {
