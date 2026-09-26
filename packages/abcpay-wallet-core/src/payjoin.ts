@@ -1,6 +1,6 @@
 import type { SupportedCoin } from '@bcpros/abcpay-models';
 import { scriptPubKeyHexFromAddress } from './address';
-import { equalBytes, hexToBytes } from './bytes';
+import { compactSize, equalBytes, hexToBytes } from './bytes';
 import { dustThreshold, minRelayFeePerKb } from './coinselect';
 import { derivePrivateKey } from './keys';
 import {
@@ -12,8 +12,8 @@ import {
   type PsbtInputData,
   type PsbtOutputData
 } from './psbt';
+import { parseMultisigRedeemScript } from './script';
 import {
-  estimateTxSize,
   signHash,
   sighashForInput,
   verifyInputSignature,
@@ -50,6 +50,39 @@ function outpointKey(txid: string, vout: number): string {
 
 function ceilDiv(numerator: number, denominator: number): number {
   return Math.ceil(numerator / denominator);
+}
+
+function scriptOutputSize(output: TxOutput): number {
+  if (output.scriptHex !== undefined) {
+    const script = hexToBytes(output.scriptHex);
+    if (script[0] === 0x6a) {
+      return 8 + compactSize(script.length).length + script.length;
+    }
+  }
+  return 34;
+}
+
+function psbtInputSize(input: { redeemScriptHex?: string }): number {
+  if (input.redeemScriptHex) {
+    try {
+      const { m, n } = parseMultisigRedeemScript(hexToBytes(input.redeemScriptHex));
+      return 73 * m + 34 * n + 50;
+    } catch {
+      return 148;
+    }
+  }
+  return 148;
+}
+
+function psbtSize(
+  inputs: Array<{ redeemScriptHex?: string }>,
+  outputs: TxOutput[]
+): number {
+  return (
+    10 +
+    outputs.reduce((sum, output) => sum + scriptOutputSize(output), 0) +
+    inputs.reduce((sum, input) => sum + psbtInputSize(input), 0)
+  );
 }
 
 function outputScriptHex(coin: SupportedCoin, output: TxOutput): string {
@@ -177,8 +210,8 @@ export function verifyPayjoinContribution(opts: {
   let receiverChangeCount = 0;
   for (const [index, output] of contributionTx.outputs.entries()) {
     if (index === paymentIndex) continue;
-    if (output.scriptHex !== undefined) {
-      return fail('S4', `output ${index} is a raw script output; not allowed in a PayJoin`);
+    if (output.scriptHex !== undefined && hexToBytes(output.scriptHex)[0] === 0x6a) {
+      return fail('S4', `output ${index} is an OP_RETURN; not allowed in a PayJoin`);
     }
     const scriptHex = outputScriptHex(coin, output);
     if (originalChangeScript !== undefined && scriptHex === originalChangeScript) {
@@ -219,8 +252,7 @@ export function verifyPayjoinContribution(opts: {
     return fail('S3', 'sender change was reduced beyond the receiver contribution accounting');
   }
 
-  const regularOutputCount = contributionTx.outputs.length;
-  const estimatedSize = estimateTxSize(contributionTx.inputs.length, regularOutputCount, 1, 1);
+  const estimatedSize = psbtSize(contribution.inputs, contributionTx.outputs);
   const minRelay = chain?.minRelayFeePerKb ?? minRelayFeePerKb(coin);
   const feeFloorSat = ceilDiv(estimatedSize * minRelay, 1000);
   if (fee < feeFloorSat) {
@@ -335,7 +367,7 @@ export function buildPayjoinContribution(opts: {
   const totalIn = tx.inputs.reduce((sum, input) => sum + input.satoshis, 0);
   const totalOut = tx.outputs.reduce((sum, output) => sum + output.satoshis, 0);
   const originalFee = totalIn - totalOut;
-  const originalSize = estimateTxSize(tx.inputs.length, tx.outputs.length, 1, 1);
+  const originalSize = psbtSize(opts.original.inputs, tx.outputs);
   const baseRate = Math.max(
     opts.feePerKb ?? 0,
     ceilDiv(originalFee * 1000, Math.max(originalSize, 1)),
@@ -353,7 +385,10 @@ export function buildPayjoinContribution(opts: {
     .sort((a, b) => a.satoshis - b.satoshis);
 
   for (const input of candidates) {
-    const size = estimateTxSize(tx.inputs.length + 1, tx.outputs.length + 1, 1, 1);
+    const size = psbtSize(
+      [...opts.original.inputs, { redeemScriptHex: input.redeemScript }],
+      [...tx.outputs, { address: opts.changeAddress.address, satoshis: 0 }]
+    );
     const targetFee = ceilDiv(size * baseRate, 1000);
     const deltaFee = Math.max(0, targetFee - originalFee);
     const receiverChange = input.satoshis - deltaFee;

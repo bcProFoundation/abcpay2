@@ -6,6 +6,8 @@ import {
   createCredentials,
   derivePrivateKey,
   deriveWalletAddress,
+  parsePsbt,
+  serializePsbt,
   signHash,
   signPayjoinContribution,
   sighashForInput,
@@ -420,6 +422,48 @@ describe('payjoin receiver contribution builder', () => {
     const result = s.verify(contribution);
     expect(result.ok).toBe(true);
     expect(contribution.unsignedTx.outputs[2]!.address).toBe(s.receiverChange.address);
+  });
+
+  it('accepts a contribution built from a parsed PSBT (scriptHex-normalized outputs)', () => {
+    const s = receiverScenario();
+    const parsedOriginal = parsePsbt(serializePsbt(s.original), { coin: 'xec' });
+    expect(parsedOriginal.unsignedTx.outputs[0]!.scriptHex).toBeDefined();
+    const plan = buildPayjoinContribution({
+      coin: 'xec',
+      original: parsedOriginal,
+      paymentScriptPubKeyHex: s.receiverIn.scriptPubKey!,
+      receiverUtxos: [s.receiverUtxo],
+      changeAddress: { address: s.receiverChange.address, path: 'm/1/0' },
+      feePerKb: 2000
+    });
+    let contribution = applyPayjoinContribution(parsedOriginal, plan);
+    contribution = addPartialSignature(
+      contribution,
+      plan.inputIndex,
+      s.receiverIn.publicKeys[0]!,
+      signPayjoinContribution(plan, s.receiver.xPrivKey)
+    );
+    const result = s.verify(contribution);
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects an OP_RETURN output in a contribution', () => {
+    const s = receiverScenario();
+    const plan = buildPayjoinContribution({
+      coin: 'xec',
+      original: s.original,
+      paymentScriptPubKeyHex: s.receiverIn.scriptPubKey!,
+      receiverUtxos: [s.receiverUtxo],
+      changeAddress: { address: s.receiverChange.address, path: 'm/1/0' },
+      feePerKb: 2000
+    });
+    const contribution = structuredClone(applyPayjoinContribution(s.original, plan)) as Psbt;
+    contribution.unsignedTx.outputs.push({
+      address: '',
+      satoshis: 0,
+      scriptHex: '6a0b68656c6c6f20776f726c64'
+    });
+    expectRule(s.verify(contribution), 'S4');
   });
 
   it('declines when the receiver holds no UTXO at the payment script', () => {
