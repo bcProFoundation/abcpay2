@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import { streamSSE } from 'hono/streaming';
+import { z } from 'zod';
 import {
   createWalletRequestSchema,
   joinWalletRequestSchema,
@@ -11,6 +12,8 @@ import {
 import { getFeeEstimate, chainFromCoin } from '@bcpros/abcpay-wallet-core';
 import { walletService } from './services/wallet.service';
 import { COPAYER_NOT_IN_WALLET, txProposalService } from './services/tx-proposal.service';
+import { psbtService } from './services/psbt.service';
+import { envelopeService, EnvelopeError } from './services/envelope.service';
 import { addressService } from './services/address.service';
 import { fiatService } from './services/fiat.service';
 import { notificationService } from './services/notification.service';
@@ -43,8 +46,8 @@ export function createApp() {
         chain: ['XEC', 'DOGE'],
         features: {
           notifications: true,
-          psbt: false,
-          envelopes: false,
+          psbt: true,
+          envelopes: true,
           payjoin: false,
           paidEnvelopes: false
         },
@@ -368,6 +371,193 @@ export function createApp() {
       return c.json(await txProposalService.broadcastRaw(body.coin ?? 'xec', body.raw));
     } catch (err) {
       return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
+    }
+  });
+
+  const v5Identity = (c: Context) => c.req.header('x-identity') ?? '';
+
+  const envelopeError = (c: Context, err: unknown) => {
+    if (err instanceof EnvelopeError) {
+      return c.json(
+        { code: err.status === 413 ? 'ENVELOPE_TOO_LARGE' : 'BAD_REQUEST', message: err.message },
+        err.status as 400
+      );
+    }
+    return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
+  };
+
+  const signBodySchema = z.object({
+    signatures: z
+      .array(
+        z.object({
+          inputIndex: z.number().int().min(0),
+          pubKeyHex: z.string().min(66).max(130),
+          signatureHex: z.string().min(8)
+        })
+      )
+      .min(1)
+  });
+
+  app.post('/v5/psbt/', async c => {
+    try {
+      const body = createTxProposalRequestSchema.parse(await c.req.json());
+      const proposal = await txProposalService.createProposal(c.get('walletId'), c.get('copayerId'), body);
+      const stored = await psbtService.storeForProposal(proposal as never);
+      return c.json({ ...proposal, psbt: stored.psbt, psbtSha256: stored.psbtSha256 }, 201);
+    } catch (err) {
+      return proposalError(c, err);
+    }
+  });
+
+  app.get('/v5/psbt/:id', async c => {
+    try {
+      const proposal = await txProposalService.getProposal(c.req.param('id'));
+      if (!proposal) {
+        return c.json({ code: 'NOT_FOUND', message: 'Unknown proposal' }, 404);
+      }
+      if (c.get('walletId') && proposal.walletId !== c.get('walletId')) {
+        return c.json({ code: 'FORBIDDEN', message: 'Proposal belongs to another wallet' }, 403);
+      }
+      const stored = await psbtService.loadStored(c.req.param('id'));
+      return c.json({
+        ...proposal,
+        psbt: stored?.psbt ?? null,
+        psbtSha256: stored?.psbtSha256 ?? null
+      });
+    } catch (err) {
+      return proposalError(c, err);
+    }
+  });
+
+  app.post('/v5/psbt/:id/sign', async c => {
+    try {
+      const body = signBodySchema.parse(await c.req.json());
+      const result = await psbtService.attachCopayerSignatures(
+        c.req.param('id'),
+        c.get('copayerId'),
+        body.signatures
+      );
+      return c.json(result);
+    } catch (err) {
+      return proposalError(c, err);
+    }
+  });
+
+  app.post('/v5/psbt/:id/finalize', async c => {
+    try {
+      const proposal = await txProposalService.getProposal(c.req.param('id'));
+      if (!proposal) {
+        return c.json({ code: 'NOT_FOUND', message: 'Unknown proposal' }, 404);
+      }
+      if (c.get('walletId') && proposal.walletId !== c.get('walletId')) {
+        return c.json({ code: 'FORBIDDEN', message: 'Proposal belongs to another wallet' }, 403);
+      }
+      return c.json(await psbtService.finalize(c.req.param('id'), proposal.coin as 'xec' | 'doge'));
+    } catch (err) {
+      return proposalError(c, err);
+    }
+  });
+
+  app.post('/v5/psbt/:id/relay', async c => {
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      const raw =
+        body.raw ??
+        (await psbtService.finalize(c.req.param('id'))).raw;
+      const proposal = await txProposalService.broadcastProposal(
+        c.req.param('id'),
+        c.get('copayerId'),
+        raw
+      );
+      return c.json(proposal);
+    } catch (err) {
+      return proposalError(c, err);
+    }
+  });
+
+  const identityBodySchema = z.object({
+    identityKey: z.string().length(66),
+    requestPubKey: z.string().min(66).max(130),
+    encryptionPubKey: z.string().min(66).max(130),
+    label: z.string().max(100).optional()
+  });
+
+  app.post('/v5/identities/', async c => {
+    try {
+      const body = identityBodySchema.parse(await c.req.json());
+      const registered = await envelopeService.registerIdentity({
+        callerIdentity: v5Identity(c),
+        ...body
+      });
+      return c.json(
+        {
+          identityKey: registered.identityKey,
+          requestPubKey: registered.requestPubKey,
+          encryptionPubKey: registered.encryptionPubKey
+        },
+        201
+      );
+    } catch (err) {
+      return envelopeError(c, err);
+    }
+  });
+
+  app.get('/v5/identities/:identity', async c => {
+    const found = await envelopeService.getIdentity(c.req.param('identity'));
+    if (!found) {
+      return c.json({ code: 'NOT_FOUND', message: 'Unknown identity' }, 404);
+    }
+    return c.json({
+      requestPubKey: found.requestPubKey,
+      encryptionPubKey: found.encryptionPubKey ?? null,
+      walletIds: found.walletId ? [found.walletId] : []
+    });
+  });
+
+  app.post('/v5/envelopes/', async c => {
+    try {
+      const caller = await envelopeService.resolveIdentityKey(v5Identity(c));
+      if (!caller) {
+        return c.json({ code: 'NOT_AUTHORIZED', message: 'Unknown envelope identity' }, 401);
+      }
+      const envelope = await c.req.json();
+      const id = await envelopeService.storeEnvelope(envelope, caller.identityKey);
+      return c.json({ id }, 201);
+    } catch (err) {
+      return envelopeError(c, err);
+    }
+  });
+
+  app.get('/v5/envelopes/', async c => {
+    try {
+      const caller = await envelopeService.resolveIdentityKey(v5Identity(c));
+      if (!caller) {
+        return c.json({ code: 'NOT_AUTHORIZED', message: 'Unknown envelope identity' }, 401);
+      }
+      const since = c.req.query('since');
+      const items = await envelopeService.listPending(
+        caller.identityKey,
+        since ? Number(since) : undefined
+      );
+      return c.json({ envelopes: items });
+    } catch (err) {
+      return envelopeError(c, err);
+    }
+  });
+
+  app.post('/v5/envelopes/:id/ack', async c => {
+    try {
+      const caller = await envelopeService.resolveIdentityKey(v5Identity(c));
+      if (!caller) {
+        return c.json({ code: 'NOT_AUTHORIZED', message: 'Unknown envelope identity' }, 401);
+      }
+      const acked = await envelopeService.ack(caller.identityKey, c.req.param('id'));
+      if (!acked) {
+        return c.json({ code: 'NOT_FOUND', message: 'No such pending envelope' }, 404);
+      }
+      return c.json({ ok: true });
+    } catch (err) {
+      return envelopeError(c, err);
     }
   });
 

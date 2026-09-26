@@ -9,5 +9,7 @@ export * from './coinselect';
 export * from './tokens';
 export * from './verify';
 export * from './psbt';
+export * from './envelope';
+export * from './payjoin';
 export * from './auth';
 export * from './chronik';

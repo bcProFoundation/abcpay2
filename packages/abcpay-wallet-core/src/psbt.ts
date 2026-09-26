@@ -120,6 +120,30 @@ function proprietaryKey(prefix: string, keyData: Uint8Array = new Uint8Array(0))
   );
 }
 
+export function findProprietaryValue(
+  pairs: PsbtKeyValue[],
+  prefix: string
+): Uint8Array | undefined {
+  const key = proprietaryKey(prefix);
+  return pairs.find(pair => equalBytes(pair.key, key))?.value;
+}
+
+export function psbtUtxoAt(
+  psbt: Psbt,
+  index: number
+): { sats: number; scriptPubKeyHex: string } | undefined {
+  const input = psbt.inputs[index];
+  if (!input?.utxo) return undefined;
+  if ('scriptPubKeyHex' in input.utxo) return input.utxo;
+  const outpoint = psbt.unsignedTx.inputs[index];
+  if (!outpoint) return undefined;
+  try {
+    return resolveUtxo(hexToBytes(input.utxo.prevTxHex), outpoint);
+  } catch {
+    return undefined;
+  }
+}
+
 function encodeUtxoValue(sats: number, scriptPubKey: Uint8Array): Uint8Array {
   return concatBytes(u64LE(sats), varSlice(scriptPubKey));
 }
@@ -151,7 +175,7 @@ function resolveUtxo(
   return decodeUtxoValue(value);
 }
 
-function pubkeyMatchesInputScript(
+export function pubkeyMatchesInputScript(
   scriptPubKey: Uint8Array,
   redeemScript: Uint8Array | undefined,
   pubKeyHex: string
@@ -486,6 +510,20 @@ function mergeUnknownPairs(a: PsbtKeyValue[], b: PsbtKeyValue[], label: string):
   return merged;
 }
 
+function utxoFingerprint(
+  utxo: { sats: number; scriptPubKeyHex: string } | { prevTxHex: string } | undefined,
+  outpoint: { txid: string; vout: number }
+): string | undefined {
+  if (!utxo) return undefined;
+  if ('scriptPubKeyHex' in utxo) return `${utxo.sats}:${utxo.scriptPubKeyHex.toLowerCase()}`;
+  try {
+    const resolved = resolveUtxo(hexToBytes(utxo.prevTxHex), outpoint);
+    return `${resolved.sats}:${resolved.scriptPubKeyHex.toLowerCase()}`;
+  } catch {
+    return `raw:${utxo.prevTxHex}`;
+  }
+}
+
 export function combinePsbts(a: Psbt, b: Psbt): Psbt {
   if (!equalBytes(serializeUnsignedTx(a.unsignedTx), serializeUnsignedTx(b.unsignedTx))) {
     throw new Error('combinePsbts: unsigned transactions differ');
@@ -495,6 +533,10 @@ export function combinePsbts(a: Psbt, b: Psbt): Psbt {
   }
   const inputs = a.inputs.map((inputA, index) => {
     const inputB = b.inputs[index]!;
+    const outpoint = {
+      txid: a.unsignedTx.inputs[index]!.txid,
+      vout: a.unsignedTx.inputs[index]!.vout
+    };
     const partialSigs = [...inputA.partialSigs];
     for (const sig of inputB.partialSigs) {
       const existing = partialSigs.find(
@@ -508,24 +550,26 @@ export function combinePsbts(a: Psbt, b: Psbt): Psbt {
       }
       partialSigs.push(sig);
     }
-    const pick = <T>(left: T | undefined, right: T | undefined, label: string): T | undefined => {
-      if (left === undefined) return right;
-      if (right === undefined) return left;
-      if (label === 'utxo') {
-        const leftUtxo = left as { sats: number; scriptPubKeyHex: string } | { prevTxHex: string };
-        const rightUtxo = right as { sats: number; scriptPubKeyHex: string } | { prevTxHex: string };
-        if (JSON.stringify(leftUtxo) !== JSON.stringify(rightUtxo)) {
-          throw new Error('combinePsbts: conflicting PSBT_IN_UTXO');
-        }
-      } else if (left !== right) {
-        throw new Error(`combinePsbts: conflicting redeem script`);
-      }
-      return left;
-    };
+    const leftFingerprint = utxoFingerprint(inputA.utxo, outpoint);
+    const rightFingerprint = utxoFingerprint(inputB.utxo, outpoint);
+    if (
+      leftFingerprint !== undefined &&
+      rightFingerprint !== undefined &&
+      leftFingerprint !== rightFingerprint
+    ) {
+      throw new Error('combinePsbts: conflicting PSBT_IN_UTXO');
+    }
+    if (
+      inputA.redeemScriptHex !== undefined &&
+      inputB.redeemScriptHex !== undefined &&
+      inputA.redeemScriptHex !== inputB.redeemScriptHex
+    ) {
+      throw new Error('combinePsbts: conflicting redeem script');
+    }
     return {
-      utxo: pick(inputA.utxo, inputB.utxo, 'utxo'),
+      utxo: inputA.utxo ?? inputB.utxo,
       utxoRaw: inputA.utxoRaw ?? inputB.utxoRaw,
-      redeemScriptHex: pick(inputA.redeemScriptHex, inputB.redeemScriptHex, 'redeem'),
+      redeemScriptHex: inputA.redeemScriptHex ?? inputB.redeemScriptHex,
       partialSigs,
       unknownPairs: mergeUnknownPairs(inputA.unknownPairs, inputB.unknownPairs, 'input')
     };
