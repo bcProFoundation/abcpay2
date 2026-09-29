@@ -35,7 +35,6 @@ ensure_node_26() {
   esac
 
   tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$tmpdir"' RETURN
   curl -fsSL "https://nodejs.org/dist/latest-v26.x/SHASUMS256.txt" -o "$tmpdir/SHASUMS256.txt"
   tarball="$(awk -v a="$arch" '$2 ~ ("^node-v26\\.[0-9]+\\.[0-9]+-linux-" a "\\.tar\\.xz$") { print $2; exit }' "$tmpdir/SHASUMS256.txt")"
   expected="$(awk -v name="$tarball" '$2 == name { print $1; exit }' "$tmpdir/SHASUMS256.txt")"
@@ -47,6 +46,7 @@ ensure_node_26() {
   echo "${expected}  ${tmpdir}/${tarball}" | sha256sum -c -
   mkdir -p "$NODE26_PREFIX"
   tar -xJf "$tmpdir/${tarball}" -C "$NODE26_PREFIX" --strip-components=1
+  rm -rf "$tmpdir"
   export PATH="$NODE26_PREFIX/bin:$PATH"
   hash -r
 }
@@ -94,6 +94,6 @@ bash scripts/setup-postgres.sh
 
 echo "==> Pushing database schema"
 set -a; . ./.env; set +a
-pnpm db:push
+apply_abcpay_schema
 
 echo "==> Install complete"

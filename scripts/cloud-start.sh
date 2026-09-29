@@ -20,6 +20,6 @@ bash scripts/setup-postgres.sh
 
 echo "==> Applying database schema"
 set -a; . ./.env; set +a
-pnpm db:push
+apply_abcpay_schema
 
 echo "==> Start reconciliation complete"
