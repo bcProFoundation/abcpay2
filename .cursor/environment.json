@@ -1,10 +1,6 @@
 {
   "name": "AbcPay v2",
   "user": "ubuntu",
-  "build": {
-    "dockerfile": "Dockerfile",
-    "context": ".."
-  },
   "install": "bash scripts/cloud-install.sh",
   "start": "bash scripts/cloud-start.sh",
   "ports": [
@@ -15,12 +11,12 @@
   "terminals": [
     {
       "name": "abcpay-api",
-      "command": "cd apps/abcpay-api && set -a && . ./.env && set +a && pnpm start",
+      "command": ". scripts/cloud-env.sh && cd apps/abcpay-api && set -a && . ./.env && set +a && pnpm start",
       "description": "Chronik Wallet Service on http://localhost:3232/cws/api (BWS-compatible alias at /bws/api)"
     },
     {
       "name": "abcpay-web",
-      "command": "cd apps/abcpay-web && pnpm dev",
+      "command": ". scripts/cloud-env.sh && cd apps/abcpay-web && pnpm dev",
       "description": "React web UI on http://localhost:5173"
     }
   ]

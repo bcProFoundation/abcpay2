@@ -6,6 +6,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# shellcheck source=scripts/cloud-env.sh
+. "$REPO_ROOT/scripts/cloud-env.sh"
+
 if [ ! -f .env ]; then
   cp .env.example .env
 fi
