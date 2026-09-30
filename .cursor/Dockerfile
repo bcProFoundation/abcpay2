@@ -8,6 +8,7 @@ RUN apt-get update \
       postgresql-client \
       sudo \
     && rm -rf /var/lib/apt/lists/* \
+    && npm install -g corepack@latest \
     && corepack enable \
     && corepack prepare pnpm@9.10.0 --activate
 
