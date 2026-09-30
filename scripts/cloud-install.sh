@@ -26,8 +26,12 @@ echo "==> Creating .env from .env.example (if missing)"
 if [ ! -f .env ]; then
   cp .env.example .env
 fi
+bash scripts/merge-runtime-secrets.sh .env
 # Copy .env for API processes started from apps/abcpay-api (tsx does not auto-load env files).
 cp .env apps/abcpay-api/.env
+if [ -n "${VITE_API_URL:-}" ] || [ -n "${VITE_BWS_URL:-}" ]; then
+  bash scripts/merge-runtime-secrets.sh apps/abcpay-web/.env.local
+fi
 
 echo "==> Installing workspace dependencies"
 pnpm install --frozen-lockfile
