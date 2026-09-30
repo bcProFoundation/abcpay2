@@ -5,6 +5,10 @@
 set -euo pipefail
 
 PG_BIN="$(ls -d /usr/lib/postgresql/18/bin /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)"
+if [ -z "$PG_BIN" ] || [ ! -x "$PG_BIN/initdb" ]; then
+  echo "PostgreSQL binaries not found. Run: bash scripts/cloud-install.sh" >&2
+  exit 1
+fi
 PGDATA="${PGDATA:-$HOME/.abcpay-pgdata}"
 PG_PORT="${PG_PORT:-5433}"
 PG_USER="abcpay"
