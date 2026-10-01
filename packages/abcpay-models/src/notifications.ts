@@ -25,3 +25,13 @@ export interface NotificationEvent {
 }
 
 export const NOTIFICATION_PATH = '/v1/notifications/';
+
+export interface EnvelopeNotificationEvent {
+  type: 'envelope.received';
+  identity: string;
+  envelopeId: string;
+  envelopeType: string;
+  at: number;
+}
+
+export const ENVELOPE_NOTIFICATION_PATH = '/v5/notifications/';

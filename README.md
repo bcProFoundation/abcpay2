@@ -119,6 +119,11 @@ Copy `.env.example` to `.env` and adjust Chronik URLs if needed.
 3. Copayers join via Join Wallet page
 4. Any copayer creates a tx proposal → others sign → broadcast when m signatures reached
 
+## Design docs
+
+The L2 wallet-service roadmap (client verification, PSBT, encrypted envelopes, PayJoin)
+is specified in [`docs/design/`](docs/design/README.md).
+
 ## Roadmap
 
 - [x] Real HD key derivation via `@bcpros/crypto-wallet-core` + `@bcpros/bitcore-mnemonic`

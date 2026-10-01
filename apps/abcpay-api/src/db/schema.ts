@@ -1,4 +1,4 @@
-import { bigint, boolean, integer, jsonb, pgTable, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { bigint, boolean, index, integer, jsonb, pgTable, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 
 export const wallets = pgTable('wallets', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -32,8 +32,44 @@ export const copayers = pgTable('copayers', {
   requestPubKey: text('request_pub_key').notNull(),
   signature: text('signature'),
   customData: text('custom_data'),
+  envelopeIdentity: varchar('envelope_identity', { length: 66 }),
+  encryptionPubKey: text('encryption_pub_key'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 });
+
+export const identities = pgTable('identities', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  identityKey: varchar('identity_key', { length: 66 }).notNull().unique(),
+  requestPubKey: text('request_pub_key').notNull(),
+  encryptionPubKey: text('encryption_pub_key').notNull(),
+  kind: varchar('kind', { length: 16 }).notNull().default('copayer'),
+  label: varchar('label', { length: 100 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true })
+});
+
+export const envelopes = pgTable(
+  'envelopes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    envelopeId: varchar('envelope_id', { length: 64 }).notNull().unique(),
+    recipientIdentity: varchar('recipient_identity', { length: 66 }).notNull(),
+    senderIdentity: varchar('sender_identity', { length: 66 }).notNull(),
+    typeTag: varchar('type_tag', { length: 32 }).notNull(),
+    blob: text('blob').notNull(),
+    size: integer('size').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    ackedAt: timestamp('acked_at', { withTimezone: true })
+  },
+  table => ({
+    recipientCreatedIdx: index('envelopes_recipient_created_idx').on(
+      table.recipientIdentity,
+      table.createdAt
+    ),
+    expiresIdx: index('envelopes_expires_idx').on(table.expiresAt)
+  })
+);
 
 export const addresses = pgTable('addresses', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -71,6 +107,9 @@ export const txProposals = pgTable('tx_proposals', {
   txid: varchar('txid', { length: 128 }),
   signatures: jsonb('signatures').default({}),
   actions: jsonb('actions').default([]),
+  psbt: text('psbt'),
+  psbtSha256: varchar('psbt_sha256', { length: 64 }),
+  format: varchar('format', { length: 16 }).notNull().default('json'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });
