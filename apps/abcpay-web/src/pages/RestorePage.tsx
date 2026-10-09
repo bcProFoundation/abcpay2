@@ -4,6 +4,7 @@ import { XEC_NATIVE_COIN_TYPE, XEC_RAIPAY_COIN_TYPE, XEC_TOKEN_AWARE_COIN_TYPE }
 import { createCredentials, isValidMnemonic } from '@bcpros/abcpay-wallet-core';
 import { api } from '../lib/api';
 import { saveCredentials } from '../lib/credentials-store';
+import { persistJoinRecord } from '../lib/proposal-verify';
 import { useWallets, walletFromResponse } from '../context/WalletContext';
 
 export function RestorePage() {
@@ -86,6 +87,10 @@ export function RestorePage() {
         });
       }
 
+      persistJoinRecord(info.id, [
+        creds.xPubKey,
+        ...(walletResponse.copayers ?? []).map(c => c.xPubKey)
+      ]);
       saveCredentials(
         info.id,
         JSON.stringify({

@@ -2,7 +2,7 @@ import type { WalletResponse } from '@bcpros/abcpay-models';
 import {
   chainFromCoin,
   envelopeIdentityFromMnemonic,
-  getUtxosForAddress,
+  getTxOutputs,
   openEnvelope,
   parsePsbt,
   scriptPubKeyHexFromAddress,
@@ -20,6 +20,7 @@ import {
   v5Request
 } from './envelopes';
 import { respondToPayjoinRequest, startPayjoinSend } from './payjoin';
+import type { SendIntent } from './proposal-verify';
 import { signAndMaybeBroadcast } from './tx';
 
 export type PaymentRequestStatus = 'pending' | 'claimed' | 'paid' | 'rejected';
@@ -196,8 +197,9 @@ export async function verifyPaymentOnChain(
 ): Promise<boolean> {
   try {
     const chain = chainFromCoin(coin);
-    const utxos = await getUtxosForAddress(chain, record.address);
-    const match = utxos.find(utxo => utxo.txid === txid);
+    const script = scriptPubKeyHexFromAddress(coin, record.address).toLowerCase();
+    const outputs = await getTxOutputs(chain, txid);
+    const match = outputs.find(output => output.scriptPubKey === script);
     if (!match) return false;
     if (record.tokenId) {
       if ((match.token?.tokenId ?? '').toLowerCase() !== record.tokenId.toLowerCase()) return false;
@@ -244,6 +246,13 @@ export async function payPaymentRequest(opts: {
     ]
   });
 
+  const intent: SendIntent = {
+    toAddress: record.address,
+    amountSat: record.tokenId ? undefined : record.amountSat,
+    tokenId: record.tokenId,
+    atoms: record.atoms
+  };
+
   let mode: 'payjoin' | 'normal' = 'normal';
   if (opts.payjoin && !record.tokenId) {
     const outcome = await startPayjoinSend({
@@ -251,6 +260,7 @@ export async function payPaymentRequest(opts: {
       creds,
       wallet,
       proposal: created,
+      intent,
       recipientIdentityKey: record.counterpartyIdentity,
       mnemonic: creds.mnemonic
     });
@@ -269,7 +279,7 @@ export async function payPaymentRequest(opts: {
     }
   }
 
-  const signed = await signAndMaybeBroadcast(created, creds, auth, wallet.copayers);
+  const signed = await signAndMaybeBroadcast(created, creds, auth, wallet.copayers, intent);
   if (signed.txid) {
     await sendPaymentReceipt({ auth, creds, record, txid: signed.txid, proposalId: signed.id });
     upsertPaymentRequest({

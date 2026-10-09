@@ -517,4 +517,22 @@ describe('payjoin receiver contribution builder', () => {
       })
     ).toThrow(/No receiver UTXO/);
   });
+
+  it('rejects an original PSBT whose fee rate exceeds the receiver cap', () => {
+    const s = receiverScenario();
+    const inflated = structuredClone(s.original) as typeof s.original;
+    // Leave payment amount intact but shrink change so the implied fee rate is huge.
+    const change = inflated.unsignedTx.outputs[1];
+    if (change) change.satoshis = 1;
+    expect(() =>
+      buildPayjoinContribution({
+        coin: 'xec',
+        original: inflated,
+        paymentScriptPubKeyHex: s.receiverIn.scriptPubKey!,
+        receiverUtxos: [s.receiverUtxo],
+        changeAddress: { address: s.receiverChange.address, path: 'm/1/0' },
+        feePerKb: 2000
+      })
+    ).toThrow(/fee rate exceeds the receiver fee cap/);
+  });
 });

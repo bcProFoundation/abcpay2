@@ -170,6 +170,28 @@ function mapToken(token:
   };
 }
 
+export interface TxOutputDetail {
+  vout: number;
+  satoshis: number;
+  scriptPubKey: string;
+  token?: ScriptToken;
+}
+
+/** Fetch a transaction by txid and return its outputs (including spent ones). */
+export async function getTxOutputs(
+  chain: SupportedChain,
+  txid: string,
+  config?: ChronikConfig
+): Promise<TxOutputDetail[]> {
+  const tx = await getChronikClient(chain, config).tx(txid);
+  return tx.outputs.map((output, vout) => ({
+    vout,
+    satoshis: Number(output.sats ?? 0),
+    scriptPubKey: (output.outputScript ?? '').toLowerCase(),
+    token: mapToken(output.token)
+  }));
+}
+
 export function summarizeUtxos(utxos: ScriptUtxo[]): AddressBalances {
   let spendableSatoshis = 0;
   let tokenSatoshis = 0;

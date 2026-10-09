@@ -28,7 +28,11 @@ import {
 import type { StoredCredentials } from '../context/WalletContext';
 import { api, type AuthContext } from './api';
 import { announceEnvelopeIdentity, fetchEnvelopeIdentity, v5Request } from './envelopes';
-import { verifyProposalBeforeSign } from './proposal-verify';
+import {
+  rememberProposalChangeAddress,
+  verifyProposalBeforeSign,
+  type SendIntent
+} from './proposal-verify';
 
 const POLL_INTERVAL_MS = 1500;
 
@@ -75,17 +79,19 @@ export async function startPayjoinSend(opts: {
   creds: StoredCredentials;
   wallet: WalletResponse;
   proposal: TxProposal;
+  intent: SendIntent;
   base64Psbt?: string;
   recipientIdentityKey: string;
   mnemonic: string;
   timeoutMs?: number;
   feePerKb?: number;
 }): Promise<PayjoinSendOutcome> {
-  const { auth, creds, wallet, proposal } = opts;
+  const { auth, creds, wallet, proposal, intent } = opts;
   const timeoutMs = opts.timeoutMs ?? 30_000;
   const startedAt = Date.now();
   try {
-    const verified = await verifyProposalBeforeSign({ proposal, auth, wallet });
+    const verified = await verifyProposalBeforeSign({ proposal, intent, auth, wallet });
+    rememberProposalChangeAddress(auth.walletId, proposal);
     await announceEnvelopeIdentity({
       auth,
       mnemonic: opts.mnemonic,

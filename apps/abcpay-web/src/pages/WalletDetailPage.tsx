@@ -6,6 +6,7 @@ import { CoinBadge, MultisigBadge } from '../components/ui';
 import { useWallets } from '../context/WalletContext';
 import { useNotifications } from '../context/NotificationContext';
 import { api } from '../lib/api';
+import { intentFromProposal, mergeJoinRecordUntilComplete } from '../lib/proposal-verify';
 import { broadcastProposal, signAndMaybeBroadcast } from '../lib/tx';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
 
@@ -40,6 +41,11 @@ export function WalletDetailPage() {
       ]);
       if (seq !== loadSeqRef.current) return;
       setRemote(w);
+      mergeJoinRecordUntilComplete(
+        w.id,
+        (w.copayers ?? []).map(c => c.xPubKey),
+        w.n
+      );
       setProposals(p.filter(item => item.status === 'pending' || item.status === 'accepted'));
       setTokens(balance.tokens ?? []);
     } catch (err) {
@@ -249,7 +255,13 @@ export function WalletDetailPage() {
                           setBusy(p.id);
                           setError('');
                           try {
-                            await signAndMaybeBroadcast(p, creds, auth, remote?.copayers ?? []);
+                            await signAndMaybeBroadcast(
+                              p,
+                              creds,
+                              auth,
+                              remote?.copayers ?? [],
+                              intentFromProposal(p)
+                            );
                           } catch (err) {
                             setError((err as Error).message);
                           } finally {

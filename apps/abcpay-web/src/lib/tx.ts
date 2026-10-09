@@ -10,6 +10,7 @@ import {
 import type { StoredCredentials } from '../context/WalletContext';
 import { api, type AuthContext } from './api';
 import {
+  rememberProposalChangeAddress,
   verifyProposalBeforeSign,
   type SendIntent
 } from './proposal-verify';
@@ -46,12 +47,13 @@ export async function signAndMaybeBroadcast(
   creds: StoredCredentials,
   auth: AuthContext,
   copayers: Array<{ copayerId?: string; id?: string; xPubKey: string }>,
-  intent?: SendIntent
+  intent: SendIntent
 ): Promise<TxProposal> {
   const wallet = await api.getWallet(auth);
   const verified = await verifyProposalBeforeSign({ proposal, intent, auth, wallet });
   const signatures = signTxInputs(verified.verifiedTx, creds.xPrivKey);
   const signed = await api.signTxProposal(auth, proposal.id, signatures);
+  rememberProposalChangeAddress(auth.walletId, proposal);
 
   if (signed.status !== 'accepted') return signed;
   return broadcastProposal(signed, auth, copayers, verified.verifiedTx);
@@ -109,6 +111,9 @@ export async function createAndSendToken(opts: {
   protocol?: 'SLP' | 'ALP';
   tokenType?: number;
 }): Promise<{ proposal: TxProposal; txid?: string }> {
+  if (opts.protocol === undefined || opts.tokenType === undefined) {
+    throw new Error('Token protocol and tokenType are required from client metadata');
+  }
   const wallet = await api.getWallet(opts.auth);
   const created = await api.createTxProposal(opts.auth, {
     proposals: [
@@ -128,8 +133,8 @@ export async function createAndSendToken(opts: {
   const intent: SendIntent = {
     toAddress: opts.toAddress,
     tokenId: opts.tokenId.toLowerCase(),
-    protocol: opts.protocol ?? created.protocol ?? 'SLP',
-    tokenType: opts.tokenType ?? created.tokenType,
+    protocol: opts.protocol,
+    tokenType: opts.tokenType,
     atoms: opts.atoms
   };
   const proposal = await signAndMaybeBroadcast(

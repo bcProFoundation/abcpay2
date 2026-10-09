@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   createCredentials,
+  envelopeIdentityFromMnemonic,
   isTimestampFresh,
   requestMessageV5,
+  signIdentityRegistration,
   signRequestV5,
+  verifyIdentityRegistration,
   verifyRequestV5,
   V5_MAX_SKEW_MS
 } from '../index';
@@ -57,5 +60,24 @@ describe('v5 request auth contract', () => {
     expect(isTimestampFresh(now - V5_MAX_SKEW_MS - 1, now)).toBe(false);
     expect(isTimestampFresh(now + V5_MAX_SKEW_MS + 1, now)).toBe(false);
     expect(isTimestampFresh(Number.NaN, now)).toBe(false);
+  });
+});
+
+describe('identity registration proof-of-possession', () => {
+  it('round-trips a signature over the canonical registration message', () => {
+    const creds = createCredentials({ coin: 'xec' });
+    const identity = envelopeIdentityFromMnemonic(creds.mnemonic);
+    const proof = signIdentityRegistration(
+      identity.privKeyHex,
+      identity.pubKeyHex,
+      creds.requestPubKey,
+      identity.pubKeyHex
+    );
+    expect(
+      verifyIdentityRegistration(proof, identity.pubKeyHex, creds.requestPubKey, identity.pubKeyHex)
+    ).toBe(true);
+    expect(
+      verifyIdentityRegistration(proof, identity.pubKeyHex, creds.requestPubKey, 'aa'.repeat(33))
+    ).toBe(false);
   });
 });

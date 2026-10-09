@@ -3,6 +3,7 @@ import {
   envelopeBytes,
   envelopeSizeLimit,
   verifyEnvelopeSignature,
+  verifyIdentityRegistration,
   type SignedEnvelope
 } from '@bcpros/abcpay-wallet-core';
 import { db } from '../db';
@@ -67,6 +68,7 @@ export class EnvelopeService {
     identityKey: string;
     requestPubKey: string;
     encryptionPubKey: string;
+    proofSignature: string;
     label?: string;
   }): Promise<ResolvedIdentity> {
     const caller = await this.resolveIdentityKey(opts.callerIdentity);
@@ -83,6 +85,31 @@ export class EnvelopeService {
     }
     if (!copayer && !caller) {
       throw new EnvelopeError(401, 'Unknown caller identity');
+    }
+    const [existing] = await db
+      .select()
+      .from(identities)
+      .where(eq(identities.identityKey, opts.identityKey))
+      .limit(1);
+    if (existing) {
+      const [owner] = await db
+        .select()
+        .from(copayers)
+        .where(eq(copayers.envelopeIdentity, opts.identityKey))
+        .limit(1);
+      if (owner && owner.copayerId !== opts.callerIdentity) {
+        throw new EnvelopeError(403, 'Identity is owned by another party');
+      }
+    }
+    if (
+      !verifyIdentityRegistration(
+        opts.proofSignature,
+        opts.identityKey,
+        opts.requestPubKey,
+        opts.encryptionPubKey
+      )
+    ) {
+      throw new EnvelopeError(401, 'Invalid identity proof-of-possession');
     }
     await db
       .insert(identities)
@@ -189,8 +216,11 @@ export class EnvelopeService {
         size: bytes.length,
         expiresAt: new Date(envelope.expiresAt * 1000)
       });
-    } catch {
-      throw new EnvelopeError(409, 'Duplicate envelope id');
+    } catch (err) {
+      if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === '23505') {
+        throw new EnvelopeError(409, 'Duplicate envelope id');
+      }
+      throw err;
     }
     notificationService.publishEnvelope({
       type: 'envelope.received',

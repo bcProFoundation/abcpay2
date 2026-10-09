@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { TxProposal } from '@bcpros/abcpay-models';
 import {
   addPartialSignature,
@@ -9,8 +9,10 @@ import {
   psbtToBase64,
   serializePsbt,
   sha256Hex,
+  sighashForInput,
   txToPsbt,
   unsignedTxFromProposal,
+  verifyInputSignature,
   type Psbt,
   type UnsignedInput
 } from '@bcpros/abcpay-wallet-core';
@@ -77,19 +79,17 @@ export class PsbtService {
     copayerId: string,
     signatures: CopayerSignatureInput[]
   ): Promise<{ psbt: string; psbtSha256: string; proposal: Awaited<ReturnType<typeof txProposalService.getProposal>> }> {
-    const proposal = (await txProposalService.getProposal(proposalId)) as TxProposal;
+    const proposal = (await txProposalService.getProposal(proposalId)) as TxProposal & {
+      status?: string;
+    };
+    if (!proposal) throw new Error('Proposal not found');
+    if (proposal.status === 'rejected' || proposal.status === 'broadcasted') {
+      throw new Error('Proposal can no longer be signed');
+    }
     const stored = await this.loadStored(proposalId);
     if (!stored) throw new Error('Proposal has no PSBT');
     const psbt = this.parseStored(stored.psbt, proposal.coin);
-    let next = psbt;
-    for (const signature of signatures) {
-      next = addPartialSignature(
-        next,
-        signature.inputIndex,
-        signature.pubKeyHex,
-        signature.signatureHex
-      );
-    }
+
     const [copayer] = await db
       .select({ xPubKey: copayers.xPubKey })
       .from(copayers)
@@ -97,6 +97,22 @@ export class PsbtService {
       .limit(1);
     if (!copayer) throw new Error('Copayer is not a member of this wallet');
     const inputs = (proposal.inputs ?? []) as Array<{ path: string }>;
+
+    let next = psbt;
+    for (const signature of signatures) {
+      const path = inputs[signature.inputIndex]?.path;
+      if (!path) throw new Error('PSBT: input index out of range');
+      const ownKey = derivePublicKey(copayer.xPubKey, path).toLowerCase();
+      if (signature.pubKeyHex.toLowerCase() !== ownKey) {
+        throw new Error('Signatures may only be attached for your own keys');
+      }
+      const sighash = sighashForInput(next.unsignedTx, signature.inputIndex);
+      if (!verifyInputSignature(signature.signatureHex, sighash, ownKey, proposal.coin)) {
+        throw new Error('Signature does not verify');
+      }
+      next = addPartialSignature(next, signature.inputIndex, ownKey, signature.signatureHex);
+    }
+
     const mirror = next.inputs.map((input, index) => {
       const pubKeyHex = derivePublicKey(copayer.xPubKey, inputs[index]!.path).toLowerCase();
       const found = input.partialSigs.find(sig => sig.pubKeyHex.toLowerCase() === pubKeyHex);
@@ -107,10 +123,20 @@ export class PsbtService {
     }
     const base64 = psbtToBase64(next);
     const psbtSha256 = this.psbtHash(next);
-    await db
+    const updatedRows = await db
       .update(txProposals)
       .set({ psbt: base64, psbtSha256, format: 'psbt' })
-      .where(eq(txProposals.proposalId, proposalId));
+      .where(
+        and(
+          eq(txProposals.proposalId, proposalId),
+          eq(txProposals.psbtSha256, stored.psbtSha256),
+          inArray(txProposals.status, ['pending', 'accepted'])
+        )
+      )
+      .returning({ id: txProposals.id });
+    if (updatedRows.length === 0) {
+      throw new Error('PSBT changed concurrently or proposal is no longer signable; retry');
+    }
     const updated = await txProposalService.signProposal(proposalId, copayerId, mirror);
     return { psbt: base64, psbtSha256, proposal: updated };
   }
