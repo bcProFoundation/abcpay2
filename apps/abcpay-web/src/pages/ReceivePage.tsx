@@ -6,6 +6,7 @@ import type { NotificationEvent } from '@bcpros/abcpay-models';
 import { getReceiveAddress, deserializeWallet } from '../lib/bwc';
 import { useWallets } from '../context/WalletContext';
 import { useNotifications } from '../context/NotificationContext';
+import { PaymentRequestsCard } from '../components/PaymentRequestsCard';
 
 interface PaymentToast {
   txid?: string;
@@ -109,6 +110,8 @@ export function ReceivePage() {
           </>
         )}
       </div>
+
+      <PaymentRequestsCard walletId={wallet.id} />
 
       {payment && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm z-50">

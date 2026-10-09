@@ -11,6 +11,52 @@ function baseEvent(walletId: string, extra: Record<string, unknown> = {}) {
 }
 
 describe('NotificationService', () => {
+  it('delivers envelope events to identity subscribers only', () => {
+    const service = new NotificationService();
+    const a = vi.fn();
+    const b = vi.fn();
+    service.subscribeIdentity('identity-a', a);
+    service.subscribeIdentity('identity-b', b);
+
+    service.publishEnvelope({
+      type: 'envelope.received',
+      identity: 'identity-a',
+      envelopeId: 'e1',
+      envelopeType: 'psbt'
+    });
+
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).not.toHaveBeenCalled();
+    expect(a.mock.calls[0][0]).toMatchObject({
+      identity: 'identity-a',
+      envelopeId: 'e1',
+      envelopeType: 'psbt'
+    });
+    expect(a.mock.calls[0][0].at).toBeGreaterThan(0);
+  });
+
+  it('stops identity delivery after unsubscribe and clears both registries', () => {
+    const service = new NotificationService();
+    const handler = vi.fn();
+    const unsubscribe = service.subscribeIdentity('identity-a', handler);
+    expect(service.identitySubscriberCount('identity-a')).toBe(1);
+    unsubscribe();
+    expect(service.identitySubscriberCount('identity-a')).toBe(0);
+    service.publishEnvelope({
+      type: 'envelope.received',
+      identity: 'identity-a',
+      envelopeId: 'e2',
+      envelopeType: 'payment_request'
+    });
+    expect(handler).not.toHaveBeenCalled();
+
+    service.subscribeIdentity('identity-a', handler);
+    service.subscribe('wallet-a', () => undefined);
+    service.clear();
+    expect(service.identitySubscriberCount('identity-a')).toBe(0);
+    expect(service.subscriberCount('wallet-a')).toBe(0);
+  });
+
   it('delivers events to subscribers of the matching wallet only', () => {
     const service = new NotificationService();
     const a = vi.fn();

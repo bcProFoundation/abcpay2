@@ -33,6 +33,28 @@ export function copayerIdFromXpub(coin: SupportedCoin, xPubKey: string): string 
   return sha256Hex(utf8ToBytes(`${coin}${xPubKey}`));
 }
 
+export const ENVELOPE_IDENTITY_PATH = "m/2'/1";
+
+export function envelopeIdentityFromMnemonic(mnemonic: string): {
+  privKeyHex: string;
+  pubKeyHex: string;
+} {
+  const trimmed = mnemonic.trim();
+  if (!isValidMnemonic(trimmed)) {
+    throw new Error('Invalid mnemonic phrase');
+  }
+  const seed = mnemonicToSeedSync(trimmed);
+  const master = HDKey.fromMasterSeed(seed);
+  const key = master.derive(ENVELOPE_IDENTITY_PATH);
+  if (!key.privateKey || !key.publicKey) {
+    throw new Error('Cannot derive envelope identity key');
+  }
+  return {
+    privKeyHex: bytesToHex(key.privateKey),
+    pubKeyHex: bytesToHex(key.publicKey)
+  };
+}
+
 export function createCredentials(opts: {
   coin: SupportedCoin;
   mnemonic?: string;

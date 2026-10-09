@@ -4,10 +4,15 @@ import {
   mergeCopayerSignatures,
   signTxInputs,
   unsignedTxFromProposal,
-  type UnsignedInput
+  type UnsignedInput,
+  type UnsignedTx
 } from '@bcpros/abcpay-wallet-core';
 import type { StoredCredentials } from '../context/WalletContext';
 import { api, type AuthContext } from './api';
+import {
+  verifyProposalBeforeSign,
+  type SendIntent
+} from './proposal-verify';
 
 export function proposalToUnsignedTx(proposal: TxProposal) {
   return unsignedTxFromProposal({
@@ -23,9 +28,10 @@ export function proposalToUnsignedTx(proposal: TxProposal) {
 export async function broadcastProposal(
   proposal: TxProposal,
   auth: AuthContext,
-  copayers: Array<{ copayerId?: string; id?: string; xPubKey: string }>
+  copayers: Array<{ copayerId?: string; id?: string; xPubKey: string }>,
+  unsignedOverride?: UnsignedTx
 ): Promise<TxProposal> {
-  const unsigned = proposalToUnsignedTx(proposal);
+  const unsigned = unsignedOverride ?? proposalToUnsignedTx(proposal);
   const merged = mergeCopayerSignatures({
     tx: unsigned,
     copayers: copayers.map(c => ({ copayerId: c.copayerId ?? c.id ?? '', xPubKey: c.xPubKey })),
@@ -39,14 +45,16 @@ export async function signAndMaybeBroadcast(
   proposal: TxProposal,
   creds: StoredCredentials,
   auth: AuthContext,
-  copayers: Array<{ copayerId?: string; id?: string; xPubKey: string }>
+  copayers: Array<{ copayerId?: string; id?: string; xPubKey: string }>,
+  intent?: SendIntent
 ): Promise<TxProposal> {
-  const unsigned = proposalToUnsignedTx(proposal);
-  const signatures = signTxInputs(unsigned, creds.xPrivKey);
+  const wallet = await api.getWallet(auth);
+  const verified = await verifyProposalBeforeSign({ proposal, intent, auth, wallet });
+  const signatures = signTxInputs(verified.verifiedTx, creds.xPrivKey);
   const signed = await api.signTxProposal(auth, proposal.id, signatures);
 
   if (signed.status !== 'accepted') return signed;
-  return broadcastProposal(signed, auth, copayers);
+  return broadcastProposal(signed, auth, copayers, verified.verifiedTx);
 }
 
 export async function createAndSendPayment(opts: {
@@ -56,6 +64,7 @@ export async function createAndSendPayment(opts: {
   satoshis: number;
   message?: string;
   sendMax?: boolean;
+  feePerKb?: number;
 }): Promise<{ proposal: TxProposal; txid?: string }> {
   const wallet = await api.getWallet(opts.auth);
   const created = await api.createTxProposal(opts.auth, {
@@ -68,11 +77,24 @@ export async function createAndSendPayment(opts: {
             message: opts.message
           }
         ],
-        sendMax: opts.sendMax
+        sendMax: opts.sendMax,
+        feePerKb: opts.feePerKb
       }
     ]
   });
-  const proposal = await signAndMaybeBroadcast(created, opts.creds, opts.auth, wallet.copayers);
+  const intent: SendIntent = {
+    toAddress: opts.toAddress,
+    amountSat: opts.sendMax ? undefined : opts.satoshis,
+    sendMax: opts.sendMax,
+    feePerKb: opts.feePerKb
+  };
+  const proposal = await signAndMaybeBroadcast(
+    created,
+    opts.creds,
+    opts.auth,
+    wallet.copayers,
+    intent
+  );
   return { proposal, txid: proposal.txid };
 }
 
@@ -84,6 +106,8 @@ export async function createAndSendToken(opts: {
   toAddress: string;
   atoms: string;
   message?: string;
+  protocol?: 'SLP' | 'ALP';
+  tokenType?: number;
 }): Promise<{ proposal: TxProposal; txid?: string }> {
   const wallet = await api.getWallet(opts.auth);
   const created = await api.createTxProposal(opts.auth, {
@@ -101,6 +125,19 @@ export async function createAndSendToken(opts: {
       }
     ]
   });
-  const proposal = await signAndMaybeBroadcast(created, opts.creds, opts.auth, wallet.copayers);
+  const intent: SendIntent = {
+    toAddress: opts.toAddress,
+    tokenId: opts.tokenId.toLowerCase(),
+    protocol: opts.protocol ?? created.protocol ?? 'SLP',
+    tokenType: opts.tokenType ?? created.tokenType,
+    atoms: opts.atoms
+  };
+  const proposal = await signAndMaybeBroadcast(
+    created,
+    opts.creds,
+    opts.auth,
+    wallet.copayers,
+    intent
+  );
   return { proposal, txid: proposal.txid };
 }
