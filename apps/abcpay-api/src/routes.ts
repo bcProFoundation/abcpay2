@@ -244,6 +244,8 @@ export function createApp() {
   app.get(NOTIFICATION_PATH, c => {
     const walletId = c.req.header('x-wallet-id');
     if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+    c.header('Cache-Control', 'no-cache, no-transform');
+    c.header('X-Accel-Buffering', 'no');
 
     return streamSSE(c, async stream => {
       const queue: NotificationEvent[] = [];
@@ -599,6 +601,8 @@ export function createApp() {
     if (!caller) {
       return c.json({ code: 'NOT_AUTHORIZED', message: 'Unknown envelope identity' }, 401);
     }
+    c.header('Cache-Control', 'no-cache, no-transform');
+    c.header('X-Accel-Buffering', 'no');
 
     return streamSSE(c, async stream => {
       const queue: Array<{ event: string; data: string }> = [];
