@@ -107,6 +107,30 @@ export function createApp() {
     return c.json(info);
   });
 
+  app.get('/v1/copayers/:copayerId/wallets/', async c => {
+    const wallets = await walletService.findWalletsByCopayerId(c.req.param('copayerId'));
+    return c.json(wallets);
+  });
+
+  app.post('/v1/wallets/recover/', async c => {
+    try {
+      const body = await c.req.json();
+      const copayerIds: string[] = Array.isArray(body.copayerIds)
+        ? body.copayerIds.map(String)
+        : body.copayerId
+          ? [String(body.copayerId)]
+          : [];
+      const xPubKeys: string[] = Array.isArray(body.xPubKeys) ? body.xPubKeys.map(String) : [];
+      if (copayerIds.length === 0 && xPubKeys.length === 0) {
+        return c.json({ code: 'BAD_REQUEST', message: 'copayerIds or xPubKeys required' }, 400);
+      }
+      const wallets = await walletService.recoverWallets({ copayerIds, xPubKeys });
+      return c.json({ wallets });
+    } catch (err) {
+      return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
+    }
+  });
+
   const handleGetWallet = async (c: { req: { header: (k: string) => string | undefined }; json: (body: unknown, status?: number) => Response }) => {
     const walletId = c.req.header('x-wallet-id');
     if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
@@ -220,6 +244,8 @@ export function createApp() {
   app.get(NOTIFICATION_PATH, c => {
     const walletId = c.req.header('x-wallet-id');
     if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+    c.header('Cache-Control', 'no-cache, no-transform');
+    c.header('X-Accel-Buffering', 'no');
 
     return streamSSE(c, async stream => {
       const queue: NotificationEvent[] = [];
@@ -461,16 +487,23 @@ export function createApp() {
 
   app.post('/v5/psbt/:id/relay', async c => {
     try {
+      const proposal = await txProposalService.getProposal(c.req.param('id'));
+      if (!proposal) {
+        return c.json({ code: 'NOT_FOUND', message: 'Unknown proposal' }, 404);
+      }
+      if (c.get('walletId') && proposal.walletId !== c.get('walletId')) {
+        return c.json({ code: 'FORBIDDEN', message: 'Proposal belongs to another wallet' }, 403);
+      }
       const body = await c.req.json().catch(() => ({}));
       const raw =
         body.raw ??
-        (await psbtService.finalize(c.req.param('id'))).raw;
-      const proposal = await txProposalService.broadcastProposal(
+        (await psbtService.finalize(c.req.param('id'), proposal.coin as 'xec' | 'doge')).raw;
+      const broadcasted = await txProposalService.broadcastProposal(
         c.req.param('id'),
         c.get('copayerId'),
         raw
       );
-      return c.json(proposal);
+      return c.json(broadcasted);
     } catch (err) {
       return proposalError(c, err);
     }
@@ -480,6 +513,7 @@ export function createApp() {
     identityKey: z.string().length(66),
     requestPubKey: z.string().min(66).max(130),
     encryptionPubKey: z.string().min(66).max(130),
+    proofSignature: z.string().min(128).max(200),
     label: z.string().max(100).optional()
   });
 
@@ -567,6 +601,8 @@ export function createApp() {
     if (!caller) {
       return c.json({ code: 'NOT_AUTHORIZED', message: 'Unknown envelope identity' }, 401);
     }
+    c.header('Cache-Control', 'no-cache, no-transform');
+    c.header('X-Accel-Buffering', 'no');
 
     return streamSSE(c, async stream => {
       const queue: Array<{ event: string; data: string }> = [];

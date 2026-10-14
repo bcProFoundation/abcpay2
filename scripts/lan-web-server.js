@@ -25,6 +25,7 @@ const MIME = {
 const apiUrl = new URL(API_ORIGIN);
 
 function proxy(req, res) {
+  const isSse = /\/(?:cws|bws)\/api\/v[15]\/notifications\/?/.test(req.url || '');
   const proxyReq = http.request(
     {
       hostname: apiUrl.hostname,
@@ -34,13 +35,25 @@ function proxy(req, res) {
       headers: { ...req.headers, host: apiUrl.host }
     },
     proxyRes => {
-      res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+      const headers = { ...proxyRes.headers };
+      if (isSse) {
+        headers['cache-control'] = 'no-cache, no-transform';
+        headers['x-accel-buffering'] = 'no';
+        delete headers['content-length'];
+      }
+      res.writeHead(proxyRes.statusCode || 502, headers);
+      if (typeof res.flushHeaders === 'function') res.flushHeaders();
       proxyRes.pipe(res);
     }
   );
+  proxyReq.setTimeout(isSse ? 0 : 120000);
   proxyReq.on('error', () => {
-    res.writeHead(502, { 'Content-Type': 'text/plain' });
-    res.end('API unavailable');
+    if (!res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'text/plain' });
+      res.end('API unavailable');
+    } else {
+      res.destroy();
+    }
   });
   req.pipe(proxyReq);
 }

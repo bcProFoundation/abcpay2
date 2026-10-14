@@ -1,4 +1,8 @@
-import { envelopeIdentityFromMnemonic, signRequestV5 } from '@bcpros/abcpay-wallet-core';
+import {
+  envelopeIdentityFromMnemonic,
+  signIdentityRegistration,
+  signRequestV5
+} from '@bcpros/abcpay-wallet-core';
 import { API_URL, type AuthContext } from './api';
 
 export interface EnvelopeIdentityInfo {
@@ -52,10 +56,17 @@ export async function announceEnvelopeIdentity(opts: {
   label?: string;
 }): Promise<EnvelopeIdentityInfo> {
   const identity = envelopeIdentityFromMnemonic(opts.mnemonic);
+  const encryptionPubKey = identity.pubKeyHex;
   return v5Request<EnvelopeIdentityInfo>(opts.auth, 'POST', '/v5/identities/', {
     identityKey: identity.pubKeyHex,
     requestPubKey: opts.requestPubKey,
-    encryptionPubKey: identity.pubKeyHex,
+    encryptionPubKey,
+    proofSignature: signIdentityRegistration(
+      identity.privKeyHex,
+      identity.pubKeyHex,
+      opts.requestPubKey,
+      encryptionPubKey
+    ),
     label: opts.label
   });
 }

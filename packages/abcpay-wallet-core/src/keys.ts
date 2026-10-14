@@ -19,6 +19,7 @@ export interface WalletCredentials {
   copayerId: string;
   accountPath: string;
   coin: SupportedCoin;
+  coinType?: number;
 }
 
 export function generateWalletMnemonic(): string {
@@ -29,6 +30,7 @@ export function isValidMnemonic(mnemonic: string): boolean {
   return validateMnemonic(mnemonic.trim(), wordlist);
 }
 
+/** Bitcore Wallet Client / AbcPay v1: sha256(coin + xPubKey) hex. */
 export function copayerIdFromXpub(coin: SupportedCoin, xPubKey: string): string {
   return sha256Hex(utf8ToBytes(`${coin}${xPubKey}`));
 }
@@ -91,6 +93,8 @@ export function createCredentials(opts: {
   }
 
   const xPubKey = account.publicExtendedKey;
+  const parsedCoinType = Number(accountPath.split('/')[2]?.replace(/'/g, ''));
+  const coinType = opts.coinType ?? (Number.isFinite(parsedCoinType) ? parsedCoinType : undefined);
   return {
     mnemonic,
     xPrivKey: account.privateExtendedKey,
@@ -101,7 +105,8 @@ export function createCredentials(opts: {
     walletPubKey: bytesToHex(walletKey.publicKey),
     copayerId: copayerIdFromXpub(opts.coin, xPubKey),
     accountPath,
-    coin: opts.coin
+    coin: opts.coin,
+    coinType
   };
 }
 

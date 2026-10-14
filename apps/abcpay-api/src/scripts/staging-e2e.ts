@@ -11,6 +11,7 @@ import {
   mergeCopayerSignatures,
   openEnvelope,
   sealEnvelope,
+  signIdentityRegistration,
   signRequest,
   signRequestV5,
   signTxInputs,
@@ -525,6 +526,12 @@ async function main() {
         identityKey: idA.pubKeyHex,
         requestPubKey: ca.requestPubKey,
         encryptionPubKey: idA.pubKeyHex,
+        proofSignature: signIdentityRegistration(
+          idA.privKeyHex,
+          idA.pubKeyHex,
+          ca.requestPubKey,
+          idA.pubKeyHex
+        ),
         label: 'staging-e2e-a'
       },
       creds: ca,
@@ -541,6 +548,12 @@ async function main() {
         identityKey: idB.pubKeyHex,
         requestPubKey: cb.requestPubKey,
         encryptionPubKey: idB.pubKeyHex,
+        proofSignature: signIdentityRegistration(
+          idB.privKeyHex,
+          idB.pubKeyHex,
+          cb.requestPubKey,
+          idB.pubKeyHex
+        ),
         label: 'staging-e2e-b'
       },
       creds: cb,
@@ -661,13 +674,11 @@ async function main() {
         walletId: seed.id,
         identity: ca.copayerId
       });
-      const received = await sseV5.waitFor(
-        event => event.type === 'envelope.received' && event.id === sseEnvelope.id
-      );
+      const received = await sseV5.waitFor(event => event.id === sseEnvelope.id);
       check(
         'v5 sse: envelope.received delivered',
-        received !== null,
-        received ? `id=${received.id} envelopeType=${received.envelopeType}` : 'event not delivered'
+        received !== null && received.type === 'memo',
+        received ? `id=${received.id} type=${received.type}` : 'event not delivered'
       );
     } finally {
       sseV5.close();

@@ -250,12 +250,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setTotalFiatBalance(`$${totalFiat.toFixed(2)}`);
   }, [wallets, authFor]);
 
+  const walletIds = wallets.map(wallet => wallet.id).join(',');
   useEffect(() => {
     if (wallets.length > 0) {
       void refreshBalances();
     }
+    // Refresh when the wallet set changes (e.g. after mnemonic restore), not on every balance update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [walletIds]);
 
   return (
     <WalletContext.Provider

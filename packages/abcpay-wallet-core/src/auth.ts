@@ -80,3 +80,37 @@ export const V5_MAX_SKEW_MS = 300_000;
 export function isTimestampFresh(ts: number, nowMs: number): boolean {
   return Number.isFinite(ts) && Math.abs(nowMs - ts) <= V5_MAX_SKEW_MS;
 }
+
+/** Canonical message proving possession of an envelope identity private key. */
+export function identityRegistrationMessage(
+  identityKey: string,
+  requestPubKey: string,
+  encryptionPubKey: string
+): string {
+  return `abcpay-v5-identity|${identityKey}|${requestPubKey}|${encryptionPubKey}`;
+}
+
+export function signIdentityRegistration(
+  identityPrivKeyHex: string,
+  identityKey: string,
+  requestPubKey: string,
+  encryptionPubKey: string
+): string {
+  return signMessage(
+    identityRegistrationMessage(identityKey, requestPubKey, encryptionPubKey),
+    identityPrivKeyHex
+  );
+}
+
+export function verifyIdentityRegistration(
+  proofSignatureHex: string,
+  identityKey: string,
+  requestPubKey: string,
+  encryptionPubKey: string
+): boolean {
+  return verifyMessage(
+    identityRegistrationMessage(identityKey, requestPubKey, encryptionPubKey),
+    proofSignatureHex,
+    identityKey
+  );
+}

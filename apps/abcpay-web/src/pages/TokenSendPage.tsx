@@ -75,6 +75,9 @@ export function TokenSendPage() {
         throw new Error(`Amount exceeds your balance of ${formatTokenAtoms(token.atoms, decimals)} ${label}`);
       }
 
+      if (token.protocol === undefined || token.tokenType === undefined) {
+        throw new Error('Token protocol/type metadata is unavailable; refusing to send');
+      }
       const { proposal, txid: broadcastTxid } = await createAndSendToken({
         auth,
         creds,
@@ -82,8 +85,8 @@ export function TokenSendPage() {
         toAddress: recipient,
         atoms: atoms.toString(),
         message: message.trim() || undefined,
-        protocol: token?.protocol ?? 'SLP',
-        tokenType: token?.tokenType
+        protocol: token.protocol,
+        tokenType: token.tokenType
       });
 
       setSentAtoms(atoms.toString());

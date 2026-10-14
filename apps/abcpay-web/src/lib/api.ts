@@ -104,6 +104,16 @@ export const api = {
     return apiFetch(`/v1/wallets/${walletId}/join-info/`);
   },
 
+  recoverWallets(opts: {
+    copayerIds?: string[];
+    xPubKeys?: string[];
+  }): Promise<{ wallets: Array<JoinInfo & { copayerId: string }> }> {
+    return apiFetch('/v1/wallets/recover/', {
+      method: 'POST',
+      body: JSON.stringify(opts)
+    });
+  },
+
   getWallet(
     authOrWalletId: AuthContext | string,
     copayerId?: string,

@@ -6,6 +6,7 @@ import type { SupportedCoin } from '@bcpros/abcpay-models';
 import { defaultWalletCoinType } from '@bcpros/abcpay-models';
 import { copayerIdFromXpub, signMessage } from '@bcpros/abcpay-wallet-core';
 import { api } from './api';
+import { persistJoinRecord } from './proposal-verify';
 
 const REQUEST_KEY_PATH = "m/1'/0";
 
@@ -103,6 +104,8 @@ export async function createWallet(opts: {
     copayerSignature: signMessage(copayerHash, keys.walletPrivKey)
   });
 
+  persistJoinRecord(walletId, [keys.xPubKey]);
+
   const secret = opts.n > 1 ? buildSecret(walletId, keys.walletPrivKey, opts.coin) : undefined;
 
   if (opts.n === 1 || opts.m === opts.n) {
@@ -125,13 +128,19 @@ export async function joinWallet(opts: {
   keys.walletPrivKey = walletPrivKey;
   keys.walletPubKey = new Bitcore.PrivateKey(walletPrivKey).toPublicKey().toString();
 
-  await api.joinWallet(walletId, {
+  const joined = await api.joinWallet(walletId, {
     name: opts.copayerName,
     coin,
     xPubKey: keys.xPubKey,
     requestPubKey: keys.requestPubKey,
     copayerSignature: signMessage(copayerHash, keys.walletPrivKey)
   });
+  const wallet = 'wallet' in joined ? joined.wallet : joined;
+  const memberXpubs = [
+    keys.xPubKey,
+    ...((wallet as { copayers?: Array<{ xPubKey: string }> }).copayers ?? []).map(c => c.xPubKey)
+  ];
+  persistJoinRecord(walletId, memberXpubs);
 
   return {
     walletId,

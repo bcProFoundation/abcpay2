@@ -498,6 +498,35 @@ describe('verifyProposal tamper matrix', () => {
     expectRule(verifyProposal({ intent: s.intent, proposal: s.proposal, wallet: s.wallet, chain }), 'R10');
   });
 
+  it('R10: unspent token UTXOs and mint batons do not fail a plain XEC send', () => {
+    const s = xecScenario();
+    const chain = {
+      inputAmounts: s.chain.inputAmounts,
+      inputTokens: new Map([
+        [`${TXID_A}:0`, { tokenId: null, atoms: '0' }],
+        [`${TXID_T}:9`, { tokenId: 'ab'.repeat(32), atoms: '50', isMintBaton: false }],
+        [`${TXID_B}:7`, { tokenId: 'cd'.repeat(32), atoms: '0', isMintBaton: true }]
+      ])
+    };
+    const result = verifyProposal({ intent: s.intent, proposal: s.proposal, wallet: s.wallet, chain });
+    expect(result.ok).toBe(true);
+  });
+
+  it('R10: unspent other-token UTXOs do not fail a token send of a different id', () => {
+    const s = tokenScenario();
+    const chain = {
+      inputAmounts: s.chain.inputAmounts,
+      inputTokens: new Map([
+        [`${TXID_T}:1`, { tokenId: 'ab'.repeat(32), atoms: '100', isMintBaton: false }],
+        [`${TXID_B}:0`, { tokenId: null, atoms: '0' }],
+        [`${TXID_A}:3`, { tokenId: 'ee'.repeat(32), atoms: '9', isMintBaton: false }],
+        [`${TXID_A}:4`, { tokenId: 'ab'.repeat(32), atoms: '0', isMintBaton: true }]
+      ])
+    };
+    const result = verifyProposal({ intent: s.intent, proposal: s.proposal, wallet: s.wallet, chain });
+    expect(result.ok).toBe(true);
+  });
+
   it('R12: feePerKb outside the requested level band', () => {
     const s = xecScenario();
     const chain = { inputAmounts: s.chain.inputAmounts, feePerKbBand: { min: 1500, max: 2500 } };

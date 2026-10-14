@@ -260,9 +260,11 @@ export function verifyProposal(opts: {
     });
   }
 
+  const spentKeys = inputs.map(input => outpointKey(input.txid, input.vout));
   if (!isTokenSend && chain.inputTokens) {
-    for (const [key, tokenInfo] of chain.inputTokens) {
-      if (tokenInfo.tokenId !== null) {
+    for (const key of spentKeys) {
+      const tokenInfo = chain.inputTokens.get(key);
+      if (tokenInfo && tokenInfo.tokenId !== null) {
         return fail('R10', `input ${key} carries token ${tokenInfo.tokenId} in a non-token send`);
       }
     }
@@ -487,7 +489,9 @@ export function verifyProposal(opts: {
   if (isTokenSend) {
     const intentAtoms = BigInt(intent.atoms ?? '0');
     const recipientTokenId = intent.tokenId!.toLowerCase();
-    for (const [key, tokenInfo] of chain.inputTokens ?? new Map()) {
+    for (const key of spentKeys) {
+      const tokenInfo = chain.inputTokens?.get(key);
+      if (!tokenInfo) continue;
       if (tokenInfo.tokenId !== null && tokenInfo.tokenId.toLowerCase() !== recipientTokenId) {
         return fail('R10', `input ${key} carries unexpected token ${tokenInfo.tokenId}`);
       }

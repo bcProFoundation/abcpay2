@@ -6,6 +6,7 @@ import { CoinBadge, MultisigBadge } from '../components/ui';
 import { useWallets } from '../context/WalletContext';
 import { useNotifications } from '../context/NotificationContext';
 import { api } from '../lib/api';
+import { intentFromProposal, mergeJoinRecordUntilComplete } from '../lib/proposal-verify';
 import { broadcastProposal, signAndMaybeBroadcast } from '../lib/tx';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
 
@@ -20,6 +21,7 @@ export function WalletDetailPage() {
   const [remote, setRemote] = useState<WalletResponse | null>(null);
   const [proposals, setProposals] = useState<TxProposal[]>([]);
   const [tokens, setTokens] = useState<TokenBalance[]>([]);
+  const [spendable, setSpendable] = useState<number | null>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
 
@@ -40,8 +42,16 @@ export function WalletDetailPage() {
       ]);
       if (seq !== loadSeqRef.current) return;
       setRemote(w);
+      mergeJoinRecordUntilComplete(
+        w.id,
+        (w.copayers ?? []).map(c => c.xPubKey),
+        w.n
+      );
       setProposals(p.filter(item => item.status === 'pending' || item.status === 'accepted'));
       setTokens(balance.tokens ?? []);
+      // Detail page fetches balance directly — do not rely on stale context balance (0 after restore).
+      setSpendable(balance.totalAmount);
+      void refreshBalances();
     } catch (err) {
       if (seq !== loadSeqRef.current) return;
       setError((err as Error).message);
@@ -92,7 +102,7 @@ export function WalletDetailPage() {
         <h1 className="text-xl font-medium mb-2">{wallet.name}</h1>
         <p className="text-3xl font-bold">
           {showBalance
-            ? `${(wallet.balance / config.unitToSatoshi).toFixed(config.unitDecimals)} ${config.unitName}`
+            ? `${((spendable ?? wallet.balance) / config.unitToSatoshi).toFixed(config.unitDecimals)} ${config.unitName}`
             : '****'}
         </p>
         <p className="text-[var(--abcpay-muted)] mt-1">{showBalance ? wallet.fiatBalance : '****'}</p>
@@ -249,7 +259,13 @@ export function WalletDetailPage() {
                           setBusy(p.id);
                           setError('');
                           try {
-                            await signAndMaybeBroadcast(p, creds, auth, remote?.copayers ?? []);
+                            await signAndMaybeBroadcast(
+                              p,
+                              creds,
+                              auth,
+                              remote?.copayers ?? [],
+                              intentFromProposal(p)
+                            );
                           } catch (err) {
                             setError((err as Error).message);
                           } finally {

@@ -368,9 +368,14 @@ export function buildPayjoinContribution(opts: {
   const totalOut = tx.outputs.reduce((sum, output) => sum + output.satoshis, 0);
   const originalFee = totalIn - totalOut;
   const originalSize = psbtSize(opts.original.inputs, tx.outputs);
+  const originalRate = ceilDiv(originalFee * 1000, Math.max(originalSize, 1));
+  const rateCap = (opts.feePerKb ?? minRelayFeePerKb(opts.coin)) * 3;
+  if (originalRate > rateCap) {
+    throw new Error('Original PSBT fee rate exceeds the receiver fee cap');
+  }
   const baseRate = Math.max(
     opts.feePerKb ?? 0,
-    ceilDiv(originalFee * 1000, Math.max(originalSize, 1)),
+    originalRate,
     minRelayFeePerKb(opts.coin)
   );
   const dust = opts.dustSats ?? dustThreshold(opts.coin);

@@ -78,3 +78,8 @@ export function defaultWalletCoinType(coin: SupportedCoin, isMultisig: boolean):
   }
   return COIN_CONFIGS[coin].bip44CoinType;
 }
+
+export function xecRestoreCoinTypes(isMultisig: boolean): number[] {
+  if (isMultisig) return [XEC_NATIVE_COIN_TYPE, XEC_TOKEN_AWARE_COIN_TYPE];
+  return [XEC_TOKEN_AWARE_COIN_TYPE, XEC_NATIVE_COIN_TYPE, XEC_RAIPAY_COIN_TYPE];
+}
