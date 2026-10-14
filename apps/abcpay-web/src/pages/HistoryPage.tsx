@@ -3,23 +3,34 @@ import { useParams } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import type { TxHistoryItem } from '@bcpros/abcpay-models';
 import { useWallets } from '../context/WalletContext';
+import { useNotifications } from '../context/NotificationContext';
 import { api } from '../lib/api';
 
 export function HistoryPage() {
   const { id } = useParams<{ id: string }>();
   const { wallets, authFor } = useWallets();
+  const { subscribe } = useNotifications();
   const wallet = wallets.find(w => w.id === id);
   const [items, setItems] = useState<TxHistoryItem[]>([]);
   const [error, setError] = useState('');
 
+  const copayerId = id ? authFor(id)?.copayerId : undefined;
+
   useEffect(() => {
-    const auth = id ? authFor(id) : undefined;
+    if (!id) return;
+    const auth = authFor(id);
     if (!auth) return;
-    void api
-      .getHistory(auth)
-      .then(setItems)
-      .catch(err => setError((err as Error).message));
-  }, [id, authFor]);
+
+    const load = () =>
+      api
+        .getHistory(auth)
+        .then(setItems)
+        .catch(err => setError((err as Error).message));
+
+    void load();
+    return subscribe(id, () => void load());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, copayerId]);
 
   if (!wallet) {
     return <p className="p-8 text-center text-[var(--abcpay-muted)]">Wallet not found</p>;

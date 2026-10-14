@@ -1,10 +1,17 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { SupportedCoin } from '@bcpros/abcpay-models';
-import { xecRestoreCoinTypes } from '@bcpros/abcpay-models';
+import {
+  XEC_NATIVE_COIN_TYPE,
+  XEC_RAIPAY_COIN_TYPE,
+  XEC_TOKEN_AWARE_COIN_TYPE,
+  xecRestoreCoinTypes,
+  type SupportedCoin
+} from '@bcpros/abcpay-models';
 import { createCredentials, isValidMnemonic, type WalletCredentials } from '@bcpros/abcpay-wallet-core';
 import { api } from '../lib/api';
-import { useWallets, walletFromResponse, type StoredCredentials } from '../context/WalletContext';
+import { saveCredentials } from '../lib/credentials-store';
+import { persistJoinRecord } from '../lib/proposal-verify';
+import { useWallets, walletFromResponse } from '../context/WalletContext';
 
 function credentialsForPhrase(phrase: string): WalletCredentials[] {
   const out: WalletCredentials[] = [];
@@ -60,41 +67,46 @@ export function RestorePage() {
       const pinId = walletId.trim();
       if (pinId) {
         const info = await api.getJoinInfo(pinId);
-        const types =
-          info.coin === 'xec'
-            ? [...new Set([info.coinType, ...xecRestoreCoinTypes(info.n > 1)].filter(
-                (v): v is number => typeof v === 'number'
-              ))]
-            : [info.coinType].filter((v): v is number => typeof v === 'number');
-        for (const coinType of types.length ? types : [undefined]) {
-          const candidate = createCredentials({
-            coin: info.coin,
-            mnemonic: phrase,
-            isMultisig: info.n > 1,
-            usePurpose48: info.n > 1,
-            coinType
-          });
-          byCopayer.set(candidate.copayerId, candidate);
-          byXpub.set(candidate.xPubKey, candidate);
+        const isMultisig = info.n > 1;
+        let creds = createCredentials({
+          coin: info.coin,
+          mnemonic: phrase,
+          isMultisig,
+          usePurpose48: isMultisig,
+          coinType: info.coinType
+        });
+
+        if (!info.coinType && info.coin === 'xec') {
+          const fallbackTypes = [
+            isMultisig ? XEC_TOKEN_AWARE_COIN_TYPE : XEC_NATIVE_COIN_TYPE,
+            XEC_RAIPAY_COIN_TYPE
+          ];
+          for (const coinType of fallbackTypes) {
+            const candidate = createCredentials({
+              coin: info.coin,
+              mnemonic: phrase,
+              isMultisig,
+              usePurpose48: isMultisig,
+              coinType
+            });
+            try {
+              const probe = await api.probeJoinWallet(info.id, {
+                name,
+                coin: info.coin,
+                xPubKey: candidate.xPubKey,
+                requestPubKey: candidate.requestPubKey
+              });
+              if (probe.copayerExists) {
+                creds = candidate;
+                break;
+              }
+            } catch {
+              // try next variant
+            }
+          }
         }
-        matches = (
-          await api.recoverWallets({
-            copayerIds: [...byCopayer.keys()],
-            xPubKeys: [...byXpub.keys()]
-          })
-        ).wallets.filter(w => w.id === pinId);
-        if (matches.length === 0) {
-          // Wallet exists but this phrase is not a member yet — still allow join attempt
-          const creds = createCredentials({
-            coin: info.coin,
-            mnemonic: phrase,
-            isMultisig: info.n > 1,
-            usePurpose48: info.n > 1,
-            coinType: info.coinType
-          });
-          matches = [{ ...info, copayerId: creds.copayerId }];
-          byCopayer.set(creds.copayerId, creds);
-        }
+        byCopayer.set(creds.copayerId, creds);
+        matches = [{ ...info, copayerId: creds.copayerId }];
       }
 
       if (matches.length === 0) {
@@ -104,40 +116,61 @@ export function RestorePage() {
 
       let firstId: string | null = null;
       for (const info of matches) {
+        const isMultisig = info.n > 1;
         const creds =
           byCopayer.get(info.copayerId) ??
           createCredentials({
             coin: info.coin,
             mnemonic: phrase,
-            isMultisig: info.n > 1,
-            usePurpose48: info.n > 1,
+            isMultisig,
+            usePurpose48: isMultisig,
             coinType: info.coinType
           });
 
-        let wallet;
+        let walletResponse;
         try {
-          wallet = await api.getWallet({
+          walletResponse = await api.getWallet({
             walletId: info.id,
             copayerId: info.copayerId,
             requestPrivKey: creds.requestPrivKey
           });
         } catch {
-          wallet = await api.joinWallet(info.id, {
+          const joined = await api.joinWallet(info.id, {
             name,
             coin: info.coin,
             xPubKey: creds.xPubKey,
             requestPubKey: creds.requestPubKey
           });
+          walletResponse = 'wallet' in joined ? joined.wallet : joined;
         }
 
-        const stored: StoredCredentials = {
-          ...creds,
-          copayerId: info.copayerId,
-          walletId: wallet.id,
-          copayerName: name
-        };
-        addWallet(walletFromResponse(wallet, info.copayerId, name), stored);
-        firstId ??= wallet.id;
+        persistJoinRecord(info.id, [
+          creds.xPubKey,
+          ...(walletResponse.copayers ?? []).map(c => c.xPubKey)
+        ]);
+        saveCredentials(
+          info.id,
+          JSON.stringify({
+            walletId: info.id,
+            copayerId: info.copayerId,
+            coin: info.coin,
+            m: info.m,
+            n: info.n,
+            keys: {
+              mnemonic: creds.mnemonic,
+              xPrivKey: creds.xPrivKey,
+              xPubKey: creds.xPubKey,
+              requestPrivKey: creds.requestPrivKey,
+              requestPubKey: creds.requestPubKey,
+              copayerId: info.copayerId,
+              walletPrivKey: creds.walletPrivKey,
+              walletPubKey: creds.walletPubKey,
+              coinType: creds.coinType ?? info.coinType
+            }
+          })
+        );
+        addWallet(walletFromResponse(walletResponse, info.copayerId, name));
+        firstId ??= walletResponse.id;
       }
 
       navigate(firstId ? `/wallet/${firstId}` : '/');

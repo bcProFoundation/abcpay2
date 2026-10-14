@@ -30,6 +30,7 @@ export const walletResponseSchema = z.object({
   network: networkSchema,
   addressType: addressTypeSchema,
   status: walletStatusSchema,
+  coinType: z.number().int().optional(),
   publicKeyRing: z.array(publicKeyRingEntrySchema),
   copayers: z.array(copayerSchema),
   singleAddress: z.boolean().optional(),
@@ -63,7 +64,8 @@ export const joinWalletRequestSchema = z.object({
   xPubKey: z.string(),
   requestPubKey: z.string(),
   customData: z.string().optional(),
-  copayerSignature: z.string().optional()
+  copayerSignature: z.string().optional(),
+  dryRun: z.boolean().optional()
 });
 
 export type JoinWalletRequest = z.infer<typeof joinWalletRequestSchema>;
@@ -82,6 +84,22 @@ export const addressResponseSchema = z.object({
 
 export type AddressResponse = z.infer<typeof addressResponseSchema>;
 
+export const utxoTokenSchema = z.object({
+  tokenId: z.string(),
+  protocol: z.enum(['SLP', 'ALP']).optional(),
+  tokenType: z.number().int().optional(),
+  atoms: z.string(),
+  isMintBaton: z.boolean()
+});
+
+export const tokenBalanceSchema = utxoTokenSchema.extend({
+  ticker: z.string().optional(),
+  name: z.string().optional(),
+  decimals: z.number().int().optional()
+});
+
+export type TokenBalance = z.infer<typeof tokenBalanceSchema>;
+
 export const balanceResponseSchema = z.object({
   totalAmount: z.number(),
   lockedAmount: z.number(),
@@ -89,6 +107,8 @@ export const balanceResponseSchema = z.object({
   totalConfirmedAmount: z.number(),
   lockedConfirmedAmount: z.number(),
   availableConfirmedAmount: z.number(),
+  tokens: z.array(tokenBalanceSchema).optional(),
+  tokenSatoshis: z.number().optional(),
   byAddress: z.record(z.string(), z.number()).optional()
 });
 
@@ -103,7 +123,8 @@ export const utxoSchema = z.object({
   scriptPubKey: z.string().optional(),
   confirmations: z.number().optional(),
   locked: z.boolean().optional(),
-  path: z.string().optional()
+  path: z.string().optional(),
+  token: utxoTokenSchema.optional()
 });
 
 export type Utxo = z.infer<typeof utxoSchema>;
@@ -164,12 +185,20 @@ export const txProposalSchema = z.object({
     z.object({
       toAddress: z.string(),
       amount: z.number(),
-      message: z.string().optional()
+      message: z.string().optional(),
+      /** Raw output script (token OP_RETURN) */
+      scriptHex: z.string().optional(),
+      /** Token amount in atoms */
+      atoms: z.string().optional(),
+      tokenId: z.string().optional()
     })
   ),
   amount: z.number(),
   fee: z.number(),
   feePerKb: z.number(),
+  tokenId: z.string().optional(),
+  tokenType: z.number().int().optional(),
+  protocol: z.enum(['SLP', 'ALP']).optional(),
   excludeUnconfirmedUtxos: z.boolean().optional(),
   message: z.string().optional(),
   payProUrl: z.string().optional(),
@@ -184,7 +213,7 @@ export const txProposalSchema = z.object({
   raw: z.string().optional(),
   actions: z.array(
     z.object({
-      type: z.enum(['accept', 'reject']),
+      type: z.enum(['accept', 'reject', 'broadcast_error']),
       copayerId: z.string(),
       copayerName: z.string(),
       comment: z.string().optional(),
@@ -204,9 +233,13 @@ export const createTxProposalRequestSchema = z.object({
         z.object({
           toAddress: z.string(),
           amount: z.number(),
-          message: z.string().optional()
+          message: z.string().optional(),
+          /** Token amount in atoms (token sends) */
+          atoms: z.string().optional()
         })
       ),
+      tokenId: z.string().optional(),
+      sendMax: z.boolean().optional(),
       feePerKb: z.number().optional(),
       excludeUnconfirmedUtxos: z.boolean().optional(),
       message: z.string().optional(),

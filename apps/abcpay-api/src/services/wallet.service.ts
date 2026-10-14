@@ -6,17 +6,23 @@ import {
   chainFromCoin,
   copayerIdFromXpub,
   deriveWalletAddress,
-  getBalanceForAddress,
+  getBalancesForAddress,
+  getTokenMetadata,
   getTxHistoryForAddress,
   getUtxosForAddress,
-  relativePath
+  relativePath,
+  type TokenBalance
 } from '@bcpros/abcpay-wallet-core';
 import { db } from '../db';
 import { addresses, copayerLookup, copayers, wallets } from '../db/schema';
 import { config } from '../config';
+import { formatWalletId } from '../lib/wallet-id';
+import { addressMatchesDerivation } from '../lib/address-validation';
+import { notificationService } from './notification.service';
 
-function generateId(): string {
-  return randomBytes(16).toString('hex');
+function generateWalletId(): string {
+  const hex = randomBytes(16).toString('hex');
+  return formatWalletId(hex);
 }
 
 function chronikCfg() {
@@ -32,7 +38,7 @@ export class WalletService {
       throw new Error('Invalid m-of-n configuration');
     }
 
-    const walletId = generateId();
+    const walletId = generateWalletId();
     const chain = req.chain ?? chainFromCoin(req.coin);
     const coinType = req.coinType ?? defaultWalletCoinType(req.coin, req.n > 1);
 
@@ -57,28 +63,38 @@ export class WalletService {
       })
       .returning();
 
-    return this.toWalletResponse(wallet, []);
+    return { walletId: wallet.walletId, wallet: this.toWalletResponse(wallet, []) };
   }
 
-  async joinWallet(req: JoinWalletRequest) {
-    const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, req.walletId)).limit(1);
+  async joinWallet(walletId: string, req: JoinWalletRequest) {
+    const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
 
     if (!wallet) throw new Error('Wallet not found');
     if (wallet.coin !== req.coin) throw new Error('Coin mismatch');
 
-    const existingCopayers = await db.select().from(copayers).where(eq(copayers.walletId, req.walletId));
+    const existingCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
+
+    const copayerId = copayerIdFromXpub(wallet.coin as SupportedCoin, req.xPubKey);
+    const [existing] = await db.select().from(copayers).where(eq(copayers.copayerId, copayerId)).limit(1);
+
+    if (req.dryRun) {
+      return {
+        dryRun: true,
+        copayerExists: existingCopayers.some(c => c.xPubKey === req.xPubKey) || Boolean(existing)
+      };
+    }
+
     if (existingCopayers.length >= wallet.n) {
       throw new Error('Wallet is full');
     }
     if (existingCopayers.some(c => c.xPubKey === req.xPubKey)) {
       throw new Error('Copayer already joined');
     }
-
-    const copayerId = copayerIdFromXpub(req.coin, req.xPubKey);
+    if (existing) throw new Error('Copayer already joined');
 
     await db.insert(copayers).values({
       copayerId,
-      walletId: req.walletId,
+      walletId,
       name: req.name,
       xPubKey: req.xPubKey,
       requestPubKey: req.requestPubKey,
@@ -86,9 +102,10 @@ export class WalletService {
       customData: req.customData
     });
 
-    await db.insert(copayerLookup).values({ copayerId, walletId: req.walletId });
+    await db.insert(copayerLookup).values({ copayerId, walletId });
 
-    const updatedCopayers = await db.select().from(copayers).where(eq(copayers.walletId, req.walletId));
+    const updatedCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
+
     const publicKeyRing = updatedCopayers.map(c => ({
       xPubKey: c.xPubKey,
       requestPubKey: c.requestPubKey
@@ -98,16 +115,29 @@ export class WalletService {
     await db
       .update(wallets)
       .set({ publicKeyRing, status, updatedAt: new Date() })
-      .where(eq(wallets.walletId, req.walletId));
+      .where(eq(wallets.walletId, walletId));
 
-    const [updated] = await db.select().from(wallets).where(eq(wallets.walletId, req.walletId)).limit(1);
-    const response = this.toWalletResponse(updated, updatedCopayers);
+    const [updated] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
 
     if (status === 'complete') {
-      await this.createAddress(req.walletId, false);
+      await this.createAddress(walletId, false);
     }
 
-    return response;
+    notificationService.publish({
+      type: 'wallet.joined',
+      walletId,
+      copayerId,
+      copayerName: req.name
+    });
+    if (status === 'complete') {
+      notificationService.publish({
+        type: 'wallet.complete',
+        walletId,
+        status: 'complete'
+      });
+    }
+
+    return { wallet: this.toWalletResponse(updated, updatedCopayers) };
   }
 
   async getJoinInfo(walletId: string) {
@@ -131,6 +161,20 @@ export class WalletService {
     if (!wallet) return null;
     const walletCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
     return this.toWalletResponse(wallet, walletCopayers);
+  }
+
+  async getWalletStatus(walletId: string) {
+    const wallet = await this.getWallet(walletId);
+    if (!wallet) return null;
+
+    return {
+      wallet,
+      serverMessage: { title: '', body: '' },
+      serverMessages: [],
+      pendingTxps: [],
+      preferences: {},
+      walletId
+    };
   }
 
   async getCopayer(copayerId: string) {
@@ -212,7 +256,16 @@ export class WalletService {
       .from(addresses)
       .where(and(eq(addresses.walletId, walletId), eq(addresses.isChange, isChange)));
 
-    const index = existing.length;
+    const storedCounter = isChange ? (wallet.changeAddressIndex ?? 0) : (wallet.addressIndex ?? 0);
+    const usedIndexes = new Set<number>();
+    for (const row of existing) {
+      const parsed = Number(row.path.split('/').pop());
+      if (Number.isInteger(parsed) && parsed >= 0) usedIndexes.add(parsed);
+    }
+
+    let index = Math.max(storedCounter, existing.length);
+    while (usedIndexes.has(index)) index++;
+
     const path = relativePath(isChange, index);
     const derived = deriveWalletAddress({
       coin: wallet.coin as SupportedCoin,
@@ -223,7 +276,7 @@ export class WalletService {
       path
     });
 
-    return this.registerAddress(
+    const addr = await this.registerAddress(
       walletId,
       derived.address,
       derived.path,
@@ -233,15 +286,91 @@ export class WalletService {
       derived.scriptPubKey,
       derived.type
     );
+
+    const nextCounter = Math.max(index + 1, storedCounter);
+    await db
+      .update(wallets)
+      .set({
+        ...(isChange ? { changeAddressIndex: nextCounter } : { addressIndex: nextCounter }),
+        updatedAt: new Date()
+      })
+      .where(eq(wallets.walletId, walletId));
+
+    return addr;
   }
 
   async getMainAddress(walletId: string) {
+    await this.ensureHistoricalAddresses(walletId);
     const existing = await db
       .select()
       .from(addresses)
       .where(and(eq(addresses.walletId, walletId), eq(addresses.isChange, false)));
     if (existing[0]) return existing[0];
     return this.createAddress(walletId, false);
+  }
+
+  /**
+   * Migrated v1 wallets store `address_index` / `change_address_index` on `wallets`
+   * without pre-populating `addresses`. Materialize `0 .. counter - 1` (and at least
+   * `m/0/0`) so restored wallets see their historical v1 funds and do not skip `m/0/0`.
+   */
+  async ensureHistoricalAddresses(walletId: string) {
+    const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
+    if (!wallet || wallet.status !== 'complete') return;
+
+    const existing = await db.select().from(addresses).where(eq(addresses.walletId, walletId));
+    const receiveCount = Math.max(1, wallet.addressIndex ?? 0);
+    const changeCount = Math.max(0, wallet.changeAddressIndex ?? 0);
+
+    const havePaths = new Set(existing.map(a => a.path));
+    const missing: Array<{ isChange: boolean; index: number; path: string }> = [];
+    for (let i = 0; i < receiveCount; i++) {
+      const path = relativePath(false, i);
+      if (!havePaths.has(path)) missing.push({ isChange: false, index: i, path });
+    }
+    for (let i = 0; i < changeCount; i++) {
+      const path = relativePath(true, i);
+      if (!havePaths.has(path)) missing.push({ isChange: true, index: i, path });
+    }
+    if (missing.length === 0) return;
+
+    const ring = (wallet.publicKeyRing as Array<{ xPubKey: string }> | null) ?? [];
+    const xPubKeys =
+      ring.length >= wallet.n
+        ? ring.map(r => r.xPubKey)
+        : (await db.select().from(copayers).where(eq(copayers.walletId, walletId))).map(
+            c => c.xPubKey
+          );
+    if (xPubKeys.length < wallet.n) return;
+
+    const haveAddresses = new Set(existing.map(a => a.address));
+    const toInsert = [];
+    for (const item of missing) {
+      const derived = deriveWalletAddress({
+        coin: wallet.coin as SupportedCoin,
+        network: wallet.network as 'livenet' | 'testnet',
+        xPubKeys,
+        m: wallet.m,
+        n: wallet.n,
+        path: item.path
+      });
+      if (haveAddresses.has(derived.address)) continue;
+      haveAddresses.add(derived.address);
+      toInsert.push({
+        walletId,
+        address: derived.address,
+        path: derived.path,
+        publicKeys: derived.publicKeys,
+        coin: wallet.coin,
+        network: wallet.network,
+        type: derived.type ?? wallet.addressType,
+        isChange: item.isChange
+      });
+    }
+
+    if (toInsert.length > 0) {
+      await db.insert(addresses).values(toInsert);
+    }
   }
 
   async registerAddress(
@@ -256,6 +385,22 @@ export class WalletService {
   ) {
     const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
     if (!wallet) throw new Error('Wallet not found');
+
+    const walletCopayers = await db.select().from(copayers).where(eq(copayers.walletId, walletId));
+    const ring = walletCopayers.map(c => c.xPubKey);
+    if (ring.length > 0) {
+      if (!path) throw new Error('Address path is required');
+      const matches = addressMatchesDerivation({
+        coin: wallet.coin as SupportedCoin,
+        network: wallet.network as 'livenet' | 'testnet',
+        xPubKeys: ring,
+        m: wallet.m,
+        n: wallet.n,
+        path,
+        address
+      });
+      if (!matches) throw new Error('Address does not match the wallet derivation');
+    }
 
     const [existing] = await db
       .select()
@@ -282,7 +427,20 @@ export class WalletService {
   }
 
   async getWalletAddresses(walletId: string) {
+    await this.ensureHistoricalAddresses(walletId);
     return db.select().from(addresses).where(eq(addresses.walletId, walletId));
+  }
+
+  /** Chain watcher target: the chain plus every known address of the wallet. */
+  async getWatcherTarget(walletId: string) {
+    const [wallet] = await db.select().from(wallets).where(eq(wallets.walletId, walletId)).limit(1);
+    if (!wallet) return null;
+    await this.ensureHistoricalAddresses(walletId);
+    const rows = await db.select().from(addresses).where(eq(addresses.walletId, walletId));
+    return {
+      chain: chainFromCoin(wallet.coin as SupportedCoin),
+      addresses: rows.map(row => row.address)
+    };
   }
 
   async getBalance(walletId: string) {
@@ -295,23 +453,51 @@ export class WalletService {
         totalConfirmedAmount: 0,
         lockedConfirmedAmount: 0,
         availableConfirmedAmount: 0,
+        tokens: [],
+        tokenSatoshis: 0,
         byAddress: {}
       };
     }
 
     const chain = chainFromCoin(walletAddresses[0].coin as SupportedCoin);
     let total = 0;
+    let tokenSatoshis = 0;
     const byAddress: Record<string, number> = {};
+    const tokens = new Map<string, TokenBalance>();
 
     for (const addr of walletAddresses) {
       try {
-        const balance = await getBalanceForAddress(chain, addr.address, chronikCfg());
-        byAddress[addr.address] = balance;
-        total += balance;
+        const balances = await getBalancesForAddress(chain, addr.address, chronikCfg());
+        byAddress[addr.address] = balances.spendableSatoshis;
+        total += balances.spendableSatoshis;
+        tokenSatoshis += balances.tokenSatoshis;
+        for (const token of balances.tokens) {
+          const existing = tokens.get(token.tokenId);
+          if (existing) {
+            existing.atoms = (BigInt(existing.atoms) + BigInt(token.atoms)).toString();
+            existing.isMintBaton = existing.isMintBaton || token.isMintBaton;
+          } else {
+            tokens.set(token.tokenId, { ...token });
+          }
+        }
       } catch {
         byAddress[addr.address] = 0;
       }
     }
+
+    const tokenList = await Promise.all(
+      [...tokens.values()].map(async token => {
+        if (chain !== 'XEC') return token;
+        const metadata = await getTokenMetadata(chain, token.tokenId, chronikCfg());
+        return {
+          ...token,
+          protocol: token.protocol ?? metadata.protocol,
+          ticker: metadata.ticker,
+          name: metadata.name,
+          decimals: metadata.decimals
+        };
+      })
+    );
 
     return {
       totalAmount: total,
@@ -320,6 +506,8 @@ export class WalletService {
       totalConfirmedAmount: total,
       lockedConfirmedAmount: 0,
       availableConfirmedAmount: total,
+      tokens: tokenList,
+      tokenSatoshis,
       byAddress
     };
   }
@@ -374,6 +562,10 @@ export class WalletService {
     return items.sort((a, b) => b.time - a.time);
   }
 
+  async getTxHistory(walletId: string) {
+    return this.getHistory(walletId);
+  }
+
   toAddressResponse(addr: typeof addresses.$inferSelect, extras?: { redeemScript?: string; scriptPubKey?: string }) {
     return {
       version: '1.0.0',
@@ -391,6 +583,7 @@ export class WalletService {
   }
 
   private toWalletResponse(wallet: typeof wallets.$inferSelect, walletCopayers: (typeof copayers.$inferSelect)[]) {
+    const coin = wallet.coin as SupportedCoin;
     return {
       id: wallet.walletId,
       name: wallet.name,
@@ -399,10 +592,10 @@ export class WalletService {
       version: '1.0.0',
       createdOn: wallet.createdAt.getTime(),
       coin: wallet.coin,
-      coinType: wallet.coinType ?? defaultWalletCoinType(wallet.coin as SupportedCoin, wallet.n > 1),
       chain: wallet.chain,
       network: wallet.network,
       addressType: wallet.addressType,
+      coinType: wallet.coinType ?? defaultWalletCoinType(coin, wallet.n > 1),
       status: wallet.status,
       publicKeyRing: wallet.publicKeyRing as Array<{ xPubKey: string; requestPubKey: string }>,
       copayers: walletCopayers.map(c => ({

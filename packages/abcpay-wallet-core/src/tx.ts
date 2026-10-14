@@ -5,6 +5,8 @@ import {
   compactSize,
   concatBytes,
   hexToBytes,
+  readCompactSize,
+  readVarSlice,
   reverseBytes,
   u32LE,
   u64LE
@@ -38,6 +40,11 @@ export interface UnsignedInput {
 export interface TxOutput {
   address: string;
   satoshis: number;
+  /** Raw output script (e.g. token OP_RETURN). When set, `address` is ignored. */
+  scriptHex?: string;
+  /** Token metadata for token outputs (not serialized). */
+  atoms?: string;
+  tokenId?: string;
 }
 
 export interface UnsignedTx {
@@ -53,10 +60,14 @@ function txidBytes(txid: string): Uint8Array {
 }
 
 function serializeOutput(output: TxOutput, coin: SupportedCoin): Uint8Array {
-  if (!validateAddress(coin, output.address)) {
-    throw new Error(`Invalid output address: ${output.address}`);
-  }
-  const script = scriptPubKeyFromAddress(coin, output.address);
+  const script = output.scriptHex
+    ? hexToBytes(output.scriptHex)
+    : (() => {
+        if (!validateAddress(coin, output.address)) {
+          throw new Error(`Invalid output address: ${output.address}`);
+        }
+        return scriptPubKeyFromAddress(coin, output.address);
+      })();
   return concatBytes(u64LE(output.satoshis), compactSize(script.length), script);
 }
 
@@ -154,6 +165,23 @@ export function signHash(privateKey: Uint8Array, sighash: Uint8Array, coin: Supp
   return bytesToHex(concatBytes(sig.toDERRawBytes(), Uint8Array.of(sighashType(coin))));
 }
 
+export function verifyInputSignature(
+  signatureHex: string,
+  sighash: Uint8Array,
+  publicKeyHex: string,
+  coin?: SupportedCoin
+): boolean {
+  try {
+    if (coin && signatureHex.slice(-2).toLowerCase() !== sighashType(coin).toString(16).padStart(2, '0')) {
+      return false;
+    }
+    const der = hexToBytes(signatureHex.slice(0, -2));
+    return secp256k1.verify(der, sighash, hexToBytes(publicKeyHex));
+  } catch {
+    return false;
+  }
+}
+
 export function signTxInputs(tx: UnsignedTx, xPrivKey: string): string[] {
   return tx.inputs.map((input, index) => {
     const priv = derivePrivateKey(xPrivKey, input.path);
@@ -201,6 +229,83 @@ export function txidFromRaw(rawHex: string): string {
   return bytesToHex(reverseBytes(hash256(hexToBytes(rawHex))));
 }
 
+export function serializeUnsignedTx(tx: UnsignedTx): Uint8Array {
+  return serializeTx({
+    version: tx.version ?? (tx.coin === 'xec' ? 2 : 1),
+    coin: tx.coin,
+    outputs: tx.outputs,
+    locktime: tx.locktime ?? 0,
+    inputs: tx.inputs.map(input => ({ input, scriptSig: new Uint8Array(0) }))
+  });
+}
+
+export interface ParsedTxInput {
+  txid: string;
+  vout: number;
+  scriptHex: string;
+  sequence: number;
+}
+
+export interface ParsedTxOutput {
+  sats: number;
+  scriptHex: string;
+}
+
+export interface ParsedTx {
+  version: number;
+  inputs: ParsedTxInput[];
+  outputs: ParsedTxOutput[];
+  locktime: number;
+}
+
+export function deserializeTx(raw: Uint8Array | string): ParsedTx {
+  const bytes = typeof raw === 'string' ? hexToBytes(raw) : raw;
+  let offset = 0;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const need = (n: number) => {
+    if (offset + n > bytes.length) throw new Error('Read past end of transaction');
+  };
+  const readU32 = () => {
+    need(4);
+    const value = view.getUint32(offset, true);
+    offset += 4;
+    return value;
+  };
+  const readU64 = () => {
+    need(8);
+    const value = view.getBigUint64(offset, true);
+    offset += 8;
+    return value;
+  };
+
+  const version = readU32();
+  const inputCount = readCompactSize(bytes, offset);
+  offset += inputCount.size;
+  const inputs: ParsedTxInput[] = [];
+  for (let i = 0; i < inputCount.value; i++) {
+    need(36);
+    const txid = bytesToHex(reverseBytes(bytes.slice(offset, offset + 32)));
+    offset += 32;
+    const vout = readU32();
+    const script = readVarSlice(bytes, offset);
+    offset += script.size;
+    const sequence = readU32();
+    inputs.push({ txid, vout, scriptHex: bytesToHex(script.value), sequence });
+  }
+  const outputCount = readCompactSize(bytes, offset);
+  offset += outputCount.size;
+  const outputs: ParsedTxOutput[] = [];
+  for (let i = 0; i < outputCount.value; i++) {
+    const sats = readU64();
+    const script = readVarSlice(bytes, offset);
+    offset += script.size;
+    outputs.push({ sats: Number(sats), scriptHex: bytesToHex(script.value) });
+  }
+  const locktime = readU32();
+  if (offset !== bytes.length) throw new Error('Trailing bytes after transaction');
+  return { version, inputs, outputs, locktime };
+}
+
 export function estimateTxSize(inputCount: number, outputCount: number, n = 1, m = 1): number {
   const overhead = 10;
   const outputSize = 34 * outputCount;
@@ -242,14 +347,20 @@ export function mergeCopayerSignatures(opts: {
 export function unsignedTxFromProposal(opts: {
   coin: SupportedCoin;
   inputs: UnsignedInput[];
-  outputs: Array<{ toAddress: string; amount: number }>;
+  outputs: Array<{ toAddress: string; amount: number; scriptHex?: string; atoms?: string; tokenId?: string }>;
   amount: number;
   fee: number;
   changeAddress?: { address: string; path: string };
 }): UnsignedTx {
   const totalIn = opts.inputs.reduce((sum, i) => sum + i.satoshis, 0);
   const change = totalIn - opts.amount - opts.fee;
-  const outputs: TxOutput[] = opts.outputs.map(o => ({ address: o.toAddress, satoshis: o.amount }));
+  const outputs: TxOutput[] = opts.outputs.map(o => ({
+    address: o.toAddress,
+    satoshis: o.amount,
+    scriptHex: o.scriptHex,
+    atoms: o.atoms,
+    tokenId: o.tokenId
+  }));
   if (change > 0 && opts.changeAddress) {
     outputs.push({ address: opts.changeAddress.address, satoshis: change });
   }

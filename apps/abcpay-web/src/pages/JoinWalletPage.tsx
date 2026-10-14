@@ -1,62 +1,58 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { createCredentials } from '@bcpros/abcpay-wallet-core';
-import type { JoinInfo } from '@bcpros/abcpay-models';
-import { api } from '../lib/api';
-import { useWallets, walletFromResponse, type StoredCredentials } from '../context/WalletContext';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { supportedCoins } from '@bcpros/abcpay-models';
+import { joinWalletWithBwc } from '../lib/bwc';
+import { saveCredentials } from '../lib/credentials-store';
+import { useWallets, walletFromBwc } from '../context/WalletContext';
+
+const joinWalletSchema = z.object({
+  secret: z.string().min(1, 'Invitation secret is required'),
+  name: z.string().min(1, 'Your name is required'),
+  coin: z.enum(supportedCoins)
+});
+
+type JoinWalletForm = z.infer<typeof joinWalletSchema>;
 
 export function JoinWalletPage() {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const { addWallet, setPendingMnemonic } = useWallets();
-  const [walletId, setWalletId] = useState(params.get('walletId') ?? '');
-  const [name, setName] = useState('');
-  const [info, setInfo] = useState<JoinInfo | null>(null);
+  const { addWallet } = useWallets();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    const id = walletId.trim();
-    if (id.length < 16) {
-      setInfo(null);
-      return;
-    }
-    void api
-      .getJoinInfo(id)
-      .then(setInfo)
-      .catch(() => setInfo(null));
-  }, [walletId]);
+  const { control, handleSubmit } = useForm<JoinWalletForm>({
+    resolver: zodResolver(joinWalletSchema),
+    defaultValues: { secret: '', name: '', coin: 'xec' }
+  });
 
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!info) {
-      setError('Enter a valid wallet invitation ID');
-      return;
-    }
+  const onSubmit = async (data: JoinWalletForm) => {
     setLoading(true);
     setError('');
+
     try {
-      const creds = createCredentials({
-        coin: info.coin,
-        isMultisig: info.n > 1,
-        usePurpose48: info.n > 1
+      const result = await joinWalletWithBwc({
+        secret: data.secret.trim(),
+        copayerName: data.name,
+        coin: data.coin
       });
-      const wallet = await api.joinWallet(info.id, {
-        name,
-        coin: info.coin,
-        xPubKey: creds.xPubKey,
-        requestPubKey: creds.requestPubKey
-      });
-      const me = wallet.copayers.find(c => c.xPubKey === creds.xPubKey);
-      const stored: StoredCredentials = {
-        ...creds,
-        walletId: wallet.id,
-        copayerId: me?.id ?? creds.copayerId,
-        copayerName: name
-      };
-      addWallet(walletFromResponse(wallet, stored.copayerId, name), stored);
-      setPendingMnemonic(creds.mnemonic);
-      navigate(`/wallet/${wallet.id}`);
+
+      saveCredentials(result.walletId, result.credentials);
+
+      const localWallet = walletFromBwc(
+        result.walletId,
+        'Shared Wallet',
+        data.coin,
+        0,
+        0,
+        result.copayerId,
+        data.name,
+        'pending'
+      );
+
+      addWallet(localWallet);
+      navigate(`/wallet/${result.walletId}`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -70,37 +66,69 @@ export function JoinWalletPage() {
         <h1 className="text-lg font-medium text-center">Join Shared Wallet</h1>
       </header>
 
-      <form onSubmit={onSubmit} className="px-4 py-6 space-y-5">
+      <form onSubmit={handleSubmit(onSubmit)} className="px-4 py-6 space-y-5">
         <p className="text-sm text-[var(--abcpay-muted)]">
-          Enter the wallet invitation ID shared by the wallet creator.
+          Paste the invitation secret shared by the wallet creator.
         </p>
 
         <div>
-          <label className="block text-sm text-[var(--abcpay-muted)] mb-2">Wallet ID</label>
-          <input
-            value={walletId}
-            onChange={e => setWalletId(e.target.value.trim())}
-            placeholder="Paste wallet ID"
-            className="w-full px-4 py-3 bg-[var(--abcpay-surface)] rounded-xl border border-white/10 focus:border-[var(--abcpay-accent)] outline-none font-mono text-sm"
+          <label className="block text-sm text-[var(--abcpay-muted)] mb-2">Invitation Secret</label>
+          <Controller
+            name="secret"
+            control={control}
+            render={({ field, fieldState }) => (
+              <>
+                <textarea
+                  {...field}
+                  rows={3}
+                  placeholder="Paste invitation secret"
+                  className="w-full px-4 py-3 bg-[var(--abcpay-surface)] rounded-xl border border-white/10 focus:border-[var(--abcpay-accent)] outline-none font-mono text-sm"
+                />
+                {fieldState.error && (
+                  <p className="text-red-400 text-sm mt-1">{fieldState.error.message}</p>
+                )}
+              </>
+            )}
           />
         </div>
 
-        {info && (
-          <div className="p-4 bg-[var(--abcpay-surface)] rounded-xl text-sm">
-            <p className="font-medium">{info.name}</p>
-            <p className="text-[var(--abcpay-muted)]">
-              {info.coin.toUpperCase()} · {info.m}-of-{info.n} · {info.copayerCount}/{info.n} joined
-            </p>
-          </div>
-        )}
-
         <div>
           <label className="block text-sm text-[var(--abcpay-muted)] mb-2">Your Name</label>
-          <input
-            value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="Bob"
-            className="w-full px-4 py-3 bg-[var(--abcpay-surface)] rounded-xl border border-white/10 focus:border-[var(--abcpay-accent)] outline-none"
+          <Controller
+            name="name"
+            control={control}
+            render={({ field, fieldState }) => (
+              <>
+                <input
+                  {...field}
+                  placeholder="Bob"
+                  className="w-full px-4 py-3 bg-[var(--abcpay-surface)] rounded-xl border border-white/10 focus:border-[var(--abcpay-accent)] outline-none"
+                />
+                {fieldState.error && (
+                  <p className="text-red-400 text-sm mt-1">{fieldState.error.message}</p>
+                )}
+              </>
+            )}
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm text-[var(--abcpay-muted)] mb-2">Currency</label>
+          <Controller
+            name="coin"
+            control={control}
+            render={({ field }) => (
+              <select
+                {...field}
+                className="w-full px-4 py-3 bg-[var(--abcpay-surface)] rounded-xl border border-white/10 focus:border-[var(--abcpay-accent)] outline-none"
+              >
+                {supportedCoins.map(c => (
+                  <option key={c} value={c}>
+                    {c.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            )}
           />
         </div>
 
@@ -108,7 +136,7 @@ export function JoinWalletPage() {
 
         <button
           type="submit"
-          disabled={loading || !name || !info}
+          disabled={loading}
           className="w-full py-4 bg-[var(--abcpay-accent)] rounded-xl font-medium hover:opacity-90 disabled:opacity-50"
         >
           {loading ? 'Joining...' : 'Join Wallet'}

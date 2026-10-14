@@ -1,4 +1,5 @@
 import { ChronikClient } from 'chronik-client';
+import type { WsMsgClient } from 'chronik-client';
 import type { SupportedChain, SupportedCoin, TxHistoryItem } from '@bcpros/abcpay-models';
 import { decodeAddress, scriptPubKeyHexFromAddress } from './address';
 
@@ -32,6 +33,91 @@ export function chainFromCoin(coin: SupportedCoin): SupportedChain {
   return coin === 'xec' ? 'XEC' : 'DOGE';
 }
 
+export function coinFromChain(chain: SupportedChain): SupportedCoin {
+  return chain === 'XEC' ? 'xec' : 'doge';
+}
+
+export interface ChronikWsHandlers {
+  onMessage: (msg: ChainWsMessage) => void;
+  onConnect?: () => void;
+  onError?: (err: unknown) => void;
+}
+
+/** Chain-agnostic view of a Chronik WebSocket message (the real type lives in chronik-client). */
+export type ChainWsMessage =
+  | { type: 'Tx'; msgType: string; txid: string }
+  | { type: 'Block'; msgType: string }
+  | { type: 'Error'; error: string };
+
+/** Minimal handle over a Chronik WebSocket that callers depend on. */
+export interface ChronikWsHandle {
+  waitForOpen(): Promise<void>;
+  subscribeToAddress(address: string): void;
+  unsubscribeFromAddress(address: string): void;
+  close(): void;
+}
+
+function toChainWsMessage(msg: WsMsgClient): ChainWsMessage {
+  if (msg.type === 'Tx') return { type: 'Tx', msgType: msg.msgType, txid: msg.txid };
+  if (msg.type === 'Block') return { type: 'Block', msgType: msg.msgType };
+  return { type: 'Error', error: String((msg as { error?: unknown }).error ?? 'unknown error') };
+}
+
+/** Opens a Chronik WebSocket (auto-reconnect + automatic resubscription handled by chronik-client). */
+export function openChronikWs(
+  chain: SupportedChain,
+  config: ChronikConfig,
+  handlers: ChronikWsHandlers
+): ChronikWsHandle {
+  return getChronikClient(chain, config).ws({
+    autoReconnect: true,
+    onMessage: msg => handlers.onMessage(toChainWsMessage(msg)),
+    onConnect: handlers.onConnect,
+    onError: handlers.onError
+  });
+}
+
+export interface TxScriptMove {
+  script: string;
+  satoshis: number;
+}
+
+export interface TxScripts {
+  inputs: TxScriptMove[];
+  outputs: TxScriptMove[];
+}
+
+/**
+ * Scripts involved in a tx (lowercased hex) with their satoshi values, split by
+ * input/output. Chronik tx WebSocket messages only carry the txid, so the watcher
+ * resolves which wallets are affected, and for how much, by matching these scripts.
+ */
+export async function getTxScripts(
+  chain: SupportedChain,
+  txid: string,
+  config?: ChronikConfig
+): Promise<TxScripts> {
+  const tx = await getChronikClient(chain, config).tx(txid);
+  const toMove = (script: string | undefined, sats: number | bigint | undefined): TxScriptMove | null =>
+    script ? { script: script.toLowerCase(), satoshis: Number(sats ?? 0) } : null;
+
+  const inputs = tx.inputs
+    .map(input => toMove(input.outputScript, input.sats))
+    .filter((move): move is TxScriptMove => move !== null);
+  const outputs = tx.outputs
+    .map(output => toMove(output.outputScript, output.sats))
+    .filter((move): move is TxScriptMove => move !== null);
+  return { inputs, outputs };
+}
+
+export interface ScriptToken {
+  tokenId: string;
+  protocol?: 'SLP' | 'ALP';
+  tokenType?: number;
+  atoms: string;
+  isMintBaton: boolean;
+}
+
 export interface ScriptUtxo {
   txid: string;
   vout: number;
@@ -39,6 +125,98 @@ export interface ScriptUtxo {
   address: string;
   confirmations: number;
   scriptPubKey?: string;
+  token?: ScriptToken;
+}
+
+export interface TokenBalance {
+  tokenId: string;
+  protocol?: 'SLP' | 'ALP';
+  tokenType?: number;
+  atoms: string;
+  isMintBaton: boolean;
+}
+
+export interface AddressBalances {
+  spendableSatoshis: number;
+  tokenSatoshis: number;
+  tokens: TokenBalance[];
+}
+
+function tokenTypeNumber(tokenType: { number?: number } | number | null | undefined): number | undefined {
+  if (typeof tokenType === 'number') return tokenType;
+  return tokenType?.number;
+}
+
+function tokenProtocol(tokenType: { protocol?: string } | null | undefined): 'SLP' | 'ALP' | undefined {
+  const protocol = tokenType?.protocol;
+  return protocol === 'SLP' || protocol === 'ALP' ? protocol : undefined;
+}
+
+function mapToken(token:
+  | {
+      tokenId: string;
+      tokenType?: { protocol?: string; number?: number } | number | null;
+      atoms: bigint;
+      isMintBaton: boolean;
+    }
+  | undefined): ScriptToken | undefined {
+  if (!token) return undefined;
+  return {
+    tokenId: token.tokenId,
+    protocol: typeof token.tokenType === 'object' ? tokenProtocol(token.tokenType) : undefined,
+    tokenType: tokenTypeNumber(token.tokenType),
+    atoms: token.atoms.toString(),
+    isMintBaton: Boolean(token.isMintBaton)
+  };
+}
+
+export interface TxOutputDetail {
+  vout: number;
+  satoshis: number;
+  scriptPubKey: string;
+  token?: ScriptToken;
+}
+
+/** Fetch a transaction by txid and return its outputs (including spent ones). */
+export async function getTxOutputs(
+  chain: SupportedChain,
+  txid: string,
+  config?: ChronikConfig
+): Promise<TxOutputDetail[]> {
+  const tx = await getChronikClient(chain, config).tx(txid);
+  return tx.outputs.map((output, vout) => ({
+    vout,
+    satoshis: Number(output.sats ?? 0),
+    scriptPubKey: (output.outputScript ?? '').toLowerCase(),
+    token: mapToken(output.token)
+  }));
+}
+
+export function summarizeUtxos(utxos: ScriptUtxo[]): AddressBalances {
+  let spendableSatoshis = 0;
+  let tokenSatoshis = 0;
+  const tokens = new Map<string, TokenBalance>();
+  for (const utxo of utxos) {
+    if (utxo.token) {
+      tokenSatoshis += utxo.satoshis;
+      const existing = tokens.get(utxo.token.tokenId);
+      if (existing) {
+        existing.atoms = (BigInt(existing.atoms) + BigInt(utxo.token.atoms)).toString();
+        existing.isMintBaton = existing.isMintBaton || utxo.token.isMintBaton;
+      } else {
+        tokens.set(utxo.token.tokenId, {
+          tokenId: utxo.token.tokenId,
+          protocol: utxo.token.protocol,
+          tokenType: utxo.token.tokenType,
+          atoms: utxo.token.atoms,
+          isMintBaton: utxo.token.isMintBaton
+        });
+      }
+    } else {
+      spendableSatoshis += utxo.satoshis;
+    }
+  }
+  return { spendableSatoshis, tokenSatoshis, tokens: [...tokens.values()] };
 }
 
 function scriptEndpoint(chain: SupportedChain, address: string, config?: ChronikConfig) {
@@ -62,8 +240,18 @@ export async function getUtxosForAddress(
     satoshis: Number(utxo.sats),
     address,
     confirmations: utxo.blockHeight > 0 ? 1 : 0,
-    scriptPubKey
+    scriptPubKey,
+    token: mapToken(utxo.token)
   }));
+}
+
+export async function getBalancesForAddress(
+  chain: SupportedChain,
+  address: string,
+  config?: ChronikConfig
+): Promise<AddressBalances> {
+  const utxos = await getUtxosForAddress(chain, address, config);
+  return summarizeUtxos(utxos);
 }
 
 export async function getBalanceForAddress(
@@ -71,8 +259,48 @@ export async function getBalanceForAddress(
   address: string,
   config?: ChronikConfig
 ): Promise<number> {
-  const utxos = await getUtxosForAddress(chain, address, config);
-  return utxos.reduce((sum, u) => sum + u.satoshis, 0);
+  const balances = await getBalancesForAddress(chain, address, config);
+  return balances.spendableSatoshis;
+}
+
+export interface TokenMetadata {
+  tokenId: string;
+  protocol?: 'SLP' | 'ALP';
+  tokenType?: number;
+  ticker?: string;
+  name?: string;
+  decimals?: number;
+}
+
+const TOKEN_CACHE_TTL_MS = 10 * 60 * 1000;
+const tokenCache = new Map<string, { value: TokenMetadata; expires: number }>();
+
+export async function getTokenMetadata(
+  chain: SupportedChain,
+  tokenId: string,
+  config?: ChronikConfig
+): Promise<TokenMetadata> {
+  const cacheKey = `${chain}:${tokenId}`;
+  const cached = tokenCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.value;
+
+  const fallback: TokenMetadata = { tokenId };
+  try {
+    const info = await getChronikClient(chain, config).token(tokenId);
+    const value: TokenMetadata = {
+      tokenId: info.tokenId,
+      protocol: tokenProtocol(info.tokenType as { protocol?: string } | null | undefined),
+      tokenType: tokenTypeNumber(info.tokenType),
+      ticker: info.genesisInfo?.tokenTicker || undefined,
+      name: info.genesisInfo?.tokenName || undefined,
+      decimals: Number.isFinite(info.genesisInfo?.decimals) ? info.genesisInfo.decimals : undefined
+    };
+    tokenCache.set(cacheKey, { value, expires: Date.now() + TOKEN_CACHE_TTL_MS });
+    return value;
+  } catch {
+    tokenCache.set(cacheKey, { value: fallback, expires: Date.now() + TOKEN_CACHE_TTL_MS });
+    return fallback;
+  }
 }
 
 export async function broadcastTx(

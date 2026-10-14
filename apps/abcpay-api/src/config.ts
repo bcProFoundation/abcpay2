@@ -1,6 +1,7 @@
 export interface AppConfig {
   port: number;
   basePath: string;
+  legacyBasePath: string;
   databaseUrl: string;
   requireAuth: boolean;
   chronik: {
@@ -11,8 +12,9 @@ export interface AppConfig {
 
 export const config: AppConfig = {
   port: Number(process.env.PORT ?? 3232),
-  basePath: process.env.API_BASE_PATH ?? '/cws/api',
-  databaseUrl: process.env.DATABASE_URL ?? 'postgresql://abcpay:abcpay@localhost:5432/abcpay',
+  basePath: '/cws/api',
+  legacyBasePath: '/bws/api',
+  databaseUrl: process.env.DATABASE_URL ?? 'postgresql://abcpay:abcpay@localhost:5433/abcpay',
   requireAuth: process.env.REQUIRE_AUTH !== '0',
   chronik: {
     xecUrls: (process.env.CHRONIK_XEC_URLS ?? 'https://chronik.e.cash,https://chronik.pay2stay.com/xec').split(','),

@@ -1,27 +1,31 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import tailwindcss from '@tailwindcss/vite';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const root = dirname(fileURLToPath(import.meta.url));
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  resolve: {
-    alias: {
-      '@bcpros/abcpay-models': resolve(root, '../../packages/abcpay-models/src/index.ts'),
-      '@bcpros/abcpay-wallet-core': resolve(root, '../../packages/abcpay-wallet-core/src/index.ts')
-    }
-  },
+  plugins: [
+    react(),
+    tailwindcss(),
+    nodePolyfills({
+      include: ['buffer', 'process', 'events', 'stream', 'util', 'crypto']
+    })
+  ],
   server: {
     port: 5173,
     host: true,
     proxy: {
+      '/cws': {
+        target: 'http://localhost:3232',
+        changeOrigin: true
+      },
       '/bws': {
         target: 'http://localhost:3232',
         changeOrigin: true
       }
     }
+  },
+  define: {
+    global: 'globalThis'
   }
 });

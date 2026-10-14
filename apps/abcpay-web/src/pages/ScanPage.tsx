@@ -60,7 +60,7 @@ export function ScanPage() {
     qr.start(
       { facingMode: 'environment' },
       { fps: 8, qrbox: 220 },
-      decoded => {
+      (decoded: string) => {
         void qr.stop().catch(() => undefined);
         handlePayload(decoded);
       },

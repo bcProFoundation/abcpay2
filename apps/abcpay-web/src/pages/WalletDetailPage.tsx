@@ -1,40 +1,78 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
-import type { TxProposal, WalletResponse } from '@bcpros/abcpay-models';
+import type { TokenBalance, TxProposal, WalletResponse } from '@bcpros/abcpay-models';
 import { CoinBadge, MultisigBadge } from '../components/ui';
 import { useWallets } from '../context/WalletContext';
+import { useNotifications } from '../context/NotificationContext';
 import { api } from '../lib/api';
-import { signAndMaybeBroadcast } from '../lib/tx';
+import { intentFromProposal, mergeJoinRecordUntilComplete } from '../lib/proposal-verify';
+import { broadcastProposal, signAndMaybeBroadcast } from '../lib/tx';
+import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
+
+const FALLBACK_POLL_MS = 8000;
+const LIVE_POLL_MS = 60000;
 
 export function WalletDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { wallets, showBalance, authFor, credentialsFor, refreshBalances } = useWallets();
+  const { stateFor, subscribe } = useNotifications();
   const wallet = wallets.find(w => w.id === id);
   const [remote, setRemote] = useState<WalletResponse | null>(null);
   const [proposals, setProposals] = useState<TxProposal[]>([]);
+  const [tokens, setTokens] = useState<TokenBalance[]>([]);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
 
   const auth = id ? authFor(id) : undefined;
   const creds = id ? credentialsFor(id) : undefined;
+  const connectionState = id ? stateFor(id) : 'offline';
+
+  const loadSeqRef = useRef(0);
 
   async function load() {
     if (!auth) return;
+    const seq = ++loadSeqRef.current;
     try {
-      const [w, p] = await Promise.all([api.getWallet(auth), api.getTxProposals(auth)]);
+      const [w, p, balance] = await Promise.all([
+        api.getWallet(auth),
+        api.getTxProposals(auth),
+        api.getBalance(auth)
+      ]);
+      if (seq !== loadSeqRef.current) return;
       setRemote(w);
+      mergeJoinRecordUntilComplete(
+        w.id,
+        (w.copayers ?? []).map(c => c.xPubKey),
+        w.n
+      );
       setProposals(p.filter(item => item.status === 'pending' || item.status === 'accepted'));
+      setTokens(balance.tokens ?? []);
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       setError((err as Error).message);
     }
   }
 
+  const copayerId = auth?.copayerId;
+
   useEffect(() => {
+    if (!id || !copayerId) return;
     void load();
-    const timer = window.setInterval(() => void load(), 8000);
+    return subscribe(id, event => {
+      void load();
+      if (event.type === 'proposal.broadcast') void refreshBalances();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, copayerId]);
+
+  useEffect(() => {
+    if (!id) return;
+    const interval = connectionState === 'connected' ? LIVE_POLL_MS : FALLBACK_POLL_MS;
+    const timer = window.setInterval(() => void load(), interval);
     return () => window.clearInterval(timer);
-  }, [id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, connectionState]);
 
   if (!wallet) {
     return (
@@ -96,64 +134,168 @@ export function WalletDetailPage() {
         </div>
       )}
 
+      {wallet.coin === 'xec' && tokens.length > 0 && (
+        <div className="mx-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-medium">Tokens</h3>
+            <span className="text-xs text-[var(--abcpay-muted)]">
+              {tokens.length} held · excluded from spendable {config.unitName}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {tokens.map(token => (
+              <Link
+                key={token.tokenId}
+                to={`/wallet/${wallet.id}/send-token/${token.tokenId}`}
+                className="p-4 bg-[var(--abcpay-surface)] rounded-2xl hover:bg-[var(--abcpay-surface-2)] transition-colors"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-[var(--abcpay-surface-2)] text-[var(--abcpay-muted)]">
+                    {token.protocol ?? 'SLP'}
+                  </span>
+                  {token.isMintBaton && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300">
+                      baton
+                    </span>
+                  )}
+                </div>
+                <p className="font-medium truncate">{tokenLabel(token)}</p>
+                {token.name && token.name !== tokenLabel(token) && (
+                  <p className="text-xs text-[var(--abcpay-muted)] truncate">{token.name}</p>
+                )}
+                <p className="font-mono text-lg mt-2">{formatTokenAtoms(token.atoms, token.decimals)}</p>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="mx-4 p-4 bg-[var(--abcpay-surface)] rounded-2xl mb-4">
-        <h3 className="font-medium mb-2">Status</h3>
-        <p className="text-sm capitalize text-[var(--abcpay-muted)]">{remote?.status ?? wallet.status}</p>
+        <div className="flex items-center justify-between">
+          <h3 className="font-medium">Status</h3>
+          <span
+            className="flex items-center gap-1.5 text-xs text-[var(--abcpay-muted)]"
+            title={
+              connectionState === 'connected'
+                ? 'Live updates connected'
+                : connectionState === 'connecting'
+                  ? 'Connecting to live updates…'
+                  : 'Live updates unavailable, falling back to polling'
+            }
+          >
+            <span
+              className={`inline-block w-2 h-2 rounded-full ${
+                connectionState === 'connected'
+                  ? 'bg-green-400'
+                  : connectionState === 'connecting'
+                    ? 'bg-yellow-400'
+                    : 'bg-red-400/70'
+              }`}
+            />
+            {connectionState === 'connected' ? 'Live' : connectionState === 'connecting' ? 'Connecting…' : 'Polling'}
+          </span>
+        </div>
+        <p className="text-sm capitalize text-[var(--abcpay-muted)] mt-2">{remote?.status ?? wallet.status}</p>
       </div>
 
       {proposals.length > 0 && creds && auth && (
         <div className="mx-4 p-4 bg-[var(--abcpay-surface)] rounded-2xl">
           <h3 className="font-medium mb-3">Transaction proposals</h3>
           <div className="space-y-3">
-            {proposals.map(p => (
-              <div key={p.id} className="p-3 bg-[var(--abcpay-surface-2)] rounded-xl">
-                <p className="text-sm">
-                  {(p.amount / config.unitToSatoshi).toFixed(config.unitDecimals)} {config.unitName} →{' '}
-                  {p.outputs[0]?.toAddress.slice(0, 18)}…
-                </p>
-                <p className="text-xs text-[var(--abcpay-muted)] mt-1">
-                  {Object.keys(p.signatures ?? {}).length}/{p.requiredSignatures} signatures · {p.status}
-                </p>
-                <div className="flex gap-2 mt-3">
-                  <button
-                    disabled={Boolean(busy) || Boolean(p.signatures?.[wallet.copayerId])}
-                    onClick={async () => {
-                      setBusy(p.id);
-                      setError('');
-                      try {
-                        await signAndMaybeBroadcast(p, creds, auth, remote?.copayers ?? []);
-                        await load();
-                        await refreshBalances();
-                      } catch (err) {
-                        setError((err as Error).message);
-                      } finally {
-                        setBusy('');
-                      }
-                    }}
-                    className="flex-1 py-2 bg-[var(--abcpay-accent)] rounded-lg text-sm disabled:opacity-40"
-                  >
-                    {busy === p.id ? 'Signing…' : 'Sign'}
-                  </button>
-                  <button
-                    disabled={Boolean(busy)}
-                    onClick={async () => {
-                      setBusy(p.id);
-                      try {
-                        await api.rejectTxProposal(auth, p.id);
-                        await load();
-                      } catch (err) {
-                        setError((err as Error).message);
-                      } finally {
-                        setBusy('');
-                      }
-                    }}
-                    className="flex-1 py-2 bg-red-500/20 text-red-300 rounded-lg text-sm"
-                  >
-                    Reject
-                  </button>
+            {proposals.map(p => {
+              const signedCount = Object.keys(p.signatures ?? {}).length;
+              const readyToBroadcast = p.status === 'accepted' && signedCount >= p.requiredSignatures;
+              return (
+                <div key={p.id} className="p-3 bg-[var(--abcpay-surface-2)] rounded-xl">
+                  {(() => {
+                    const tokenOutput = p.outputs?.find(output => output.atoms);
+                    const tokenMeta = tokenOutput?.tokenId
+                      ? tokens.find(item => item.tokenId === tokenOutput.tokenId)
+                      : undefined;
+                    return (
+                      <p className="text-sm">
+                        {tokenOutput
+                          ? `${formatTokenAtoms(tokenOutput.atoms ?? '0', tokenMeta?.decimals)} ${
+                              tokenMeta ? tokenLabel(tokenMeta) : 'token'
+                            }`
+                          : `${(p.amount / config.unitToSatoshi).toFixed(config.unitDecimals)} ${config.unitName}`}{' '}
+                        → {p.outputs?.[tokenOutput ? 1 : 0]?.toAddress.slice(0, 18)}…
+                      </p>
+                    );
+                  })()}
+                  <p className="text-xs text-[var(--abcpay-muted)] mt-1">
+                    {signedCount}/{p.requiredSignatures} signatures ·{' '}
+                    {readyToBroadcast ? 'ready to broadcast' : p.status}
+                  </p>
+                  <div className="flex gap-2 mt-3">
+                    {readyToBroadcast ? (
+                      <button
+                        disabled={Boolean(busy)}
+                        onClick={async () => {
+                          setBusy(p.id);
+                          setError('');
+                          try {
+                            await broadcastProposal(p, auth, remote?.copayers ?? []);
+                          } catch (err) {
+                            setError((err as Error).message);
+                          } finally {
+                            await load();
+                            await refreshBalances();
+                            setBusy('');
+                          }
+                        }}
+                        className="flex-1 py-2 bg-[var(--abcpay-accent)] rounded-lg text-sm disabled:opacity-40"
+                      >
+                        {busy === p.id ? 'Broadcasting…' : 'Broadcast'}
+                      </button>
+                    ) : (
+                      <button
+                        disabled={Boolean(busy) || Boolean(p.signatures?.[wallet.copayerId])}
+                        onClick={async () => {
+                          setBusy(p.id);
+                          setError('');
+                          try {
+                            await signAndMaybeBroadcast(
+                              p,
+                              creds,
+                              auth,
+                              remote?.copayers ?? [],
+                              intentFromProposal(p)
+                            );
+                          } catch (err) {
+                            setError((err as Error).message);
+                          } finally {
+                            await load();
+                            await refreshBalances();
+                            setBusy('');
+                          }
+                        }}
+                        className="flex-1 py-2 bg-[var(--abcpay-accent)] rounded-lg text-sm disabled:opacity-40"
+                      >
+                        {busy === p.id ? 'Signing…' : 'Sign'}
+                      </button>
+                    )}
+                    <button
+                      disabled={Boolean(busy)}
+                      onClick={async () => {
+                        setBusy(p.id);
+                        try {
+                          await api.rejectTxProposal(auth, p.id);
+                          await load();
+                        } catch (err) {
+                          setError((err as Error).message);
+                        } finally {
+                          setBusy('');
+                        }
+                      }}
+                      className="flex-1 py-2 bg-red-500/20 text-red-300 rounded-lg text-sm"
+                    >
+                      Reject
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

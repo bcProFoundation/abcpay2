@@ -1,0 +1,837 @@
+{
+  "generatedBy": "@abcpros/bitcore-wallet-client@8.25.45 / @abcpros/crypto-wallet-core@8.25.45",
+  "network": "livenet",
+  "account": 0,
+  "wallets": [
+    {
+      "id": "xec-899-1of1",
+      "coin": "xec",
+      "coinType": 899,
+      "isSlpToken": false,
+      "m": 1,
+      "n": 1,
+      "addressType": "P2PKH",
+      "copayers": [
+        {
+          "label": "a",
+          "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+          "rootPath": "m/44'/899'/0'",
+          "addressType": "P2PKH",
+          "xPrivKey": "xprv9yBeEYevmwnuS3AsczyvenZkdSyFUHjUMx8jvaC5BE9RvswDGtzxSQDiFGfSBFPuAbR7LFJbnunBRfTUFzo3h2zbQKzmn6ZEZFL2q3gTouH",
+          "xPubKey": "xpub6CAze4BpcKMCeXFLj2Ww1vWVBUojskTKjB4LixbgjZgQogGMpSKCzCYC6a7MnX9Pi2E7WREFVegFcSaKqSeSnk5sdnHETA8sfK3qUQPP7PY",
+          "requestPrivKey": "f78e344ac4fddf901925d9555a44db7c27a7785cd52d937065c3cedc7f0d7ebf",
+          "requestPubKey": "0267d4eadb5ad46a7a06c11c9085670b91a85e6a91cad50ff6084a9f287f40b235",
+          "copayerId": "f711a9be4ec9da3cb4e5df2c04291d13d29d2cff8c7bc7bc8e96c390de4fa6e7"
+        }
+      ],
+      "addresses": [
+        {
+          "path": "m/0/0",
+          "isChange": false,
+          "address": "qpluxjhhlxfjwsymf9nmctvsdrwzwygadsh2pq0ang",
+          "publicKeys": [
+            "03602543a67787c0778df0153e879b33eb16e3759ae63dbed6e9bd3704bfe7a236"
+          ]
+        },
+        {
+          "path": "m/0/1",
+          "isChange": false,
+          "address": "qrtmy72hp7ks80xalvlt8jxczd6l3wr5zga5vct0s4",
+          "publicKeys": [
+            "0271fb7c3fa34e46aa44bee97a48531b3bc4b11b5d7a5a436fc648b8ba65385896"
+          ]
+        },
+        {
+          "path": "m/0/2",
+          "isChange": false,
+          "address": "qp03vvacfv9ngw58q472yftm7rqk45j2f5s899jwrw",
+          "publicKeys": [
+            "02ff566c378721d4e40a045e2201bdeb0c5a42ab94eba3438e0e1129fc5782ee79"
+          ]
+        },
+        {
+          "path": "m/1/0",
+          "isChange": true,
+          "address": "qza6aepaxrmhgghm4h4h76l37dlukg7gqy24wuykgz",
+          "publicKeys": [
+            "02e444e28a5c3f24e03ae92ac3222e880dc0f5c9649b0c572e0e173f6ebf70470f"
+          ]
+        },
+        {
+          "path": "m/1/1",
+          "isChange": true,
+          "address": "qpjjnh9a7l7c0jvpqnsnl9gtfwmpwuw5lgs5d29vyx",
+          "publicKeys": [
+            "03541e9e95b9ce310888329cc4f40a1ccc35923fe74726e1a7dfc65879bc1f08be"
+          ]
+        },
+        {
+          "path": "m/1/2",
+          "isChange": true,
+          "address": "qqpstzca4z4ta30ymn4q48dnhqymvats2ge625djna",
+          "publicKeys": [
+            "03b52a43d91c3e235dae8848e8e44a10194a3b2c86b6cff2b98dad9f088fc71e93"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "xec-899-2of2",
+      "coin": "xec",
+      "coinType": 899,
+      "isSlpToken": false,
+      "m": 2,
+      "n": 2,
+      "addressType": "P2SH",
+      "copayers": [
+        {
+          "label": "a",
+          "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+          "rootPath": "m/48'/899'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9zGqVAM79dusvq7QUuV7s4ntMoCVKQgBux7VMT67NPHbQ3AQsiaYiDbNAjKMs7X9MAjbppMzoVEPkpv2oGsq3gX8CJCX8VVRbdeL3zre2Hv",
+          "xPubKey": "xpub6DGBtfszz1UB9KBsaw28ECjcuq2yisQ3HB369qVivipaGqVZRFtoG1ur22t3fv4y7h7QK157Cdezu4asuF4LNo8c2QDWTrWWRgoms8SzFcb",
+          "requestPrivKey": "f78e344ac4fddf901925d9555a44db7c27a7785cd52d937065c3cedc7f0d7ebf",
+          "requestPubKey": "0267d4eadb5ad46a7a06c11c9085670b91a85e6a91cad50ff6084a9f287f40b235",
+          "copayerId": "8fed5ef1f1b5c842295e871ae84e430f1fae419521ee6fe173afbeb53b4f1e2e"
+        },
+        {
+          "label": "b",
+          "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+          "rootPath": "m/48'/899'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9yTQjthtdBJkMR5pixHY1BxaAy98rwBArVaDRwXDnqTna5yDkeFRVqdmG6wgHwRE2eGGQFCMWgyGyb4xiBm1Htw7voSorZLMRuZiHJGcFNT",
+          "xPubKey": "xpub6CSm9QEnTYs3ZuAHpypYNKuJizydGPu2DiVpEKvqMAzmStJNJBZg3dxF7PjvFStx5eV77Lw3ZviiXUHAdzKdFR1GYNPfPd6gVsiGrwPDk1a",
+          "requestPrivKey": "1ebe5bce2d99812e9f4cb6bceb8ff0a930b51276a629fff0e12e4728637f7f0a",
+          "requestPubKey": "02befcc7499abcecf9608bb05e665f374434a89ca0c4e9baeab7dd28c027143458",
+          "copayerId": "1aca1ce65b6902672dc8147f96fdafad871cac9e879e070bcd7176258366c152"
+        }
+      ],
+      "addresses": [
+        {
+          "path": "m/0/0",
+          "isChange": false,
+          "address": "ppnljr2ekda9myxt7a4vsurtst7ar6z3dsegs320k3",
+          "publicKeys": [
+            "03928d02f84f252471decabdd36911342d36ae0e2c9d45b70aa8aa98b90a0fe40f",
+            "0217237cba9c874a386c330870443511cffcb8b8ad173039f6811e8c3cf346324c"
+          ]
+        },
+        {
+          "path": "m/0/1",
+          "isChange": false,
+          "address": "pqkvyxuls2pxsh4xhwq67svppy49acs4zs2w3gu6u5",
+          "publicKeys": [
+            "02f17ee60b0bc3e97b87a57296a4f67c3806ba63ec409a3891e8232dad4b8f4785",
+            "025d8baaec70db6eac4b83ad95a4b3628b9e5cbb7797dc27d1726c6191c8d1ffea"
+          ]
+        },
+        {
+          "path": "m/0/2",
+          "isChange": false,
+          "address": "pq3jmrkjtmnlutkakt9aayqqu7uelw9c4gcryyglg6",
+          "publicKeys": [
+            "02a4b7f2aac337ee3276ea5231f3f3a69539baa391ecef026728722816cd4e2ff1",
+            "03f074368b3389f068cafda327d7265e781f59ba77ac48b852601ab085ae67f1a0"
+          ]
+        },
+        {
+          "path": "m/1/0",
+          "isChange": true,
+          "address": "pqj20hmagc500d077kfwm7sy3ldsvsk0k56l4h6qmf",
+          "publicKeys": [
+            "03777059a184370d11a496a11163485af2c524d8058a019d62f2f78a6fc005161c",
+            "03e6c73ed34063374474ad6aaa937948c8c555bf529c2facf2eceda787eab71e06"
+          ]
+        },
+        {
+          "path": "m/1/1",
+          "isChange": true,
+          "address": "prmg9tdhumg8tstya4s4v4ch4n97kxt7557nw4pc7a",
+          "publicKeys": [
+            "02a2bc08eb4c8b37fe5480d5195ad1a7f984b64c43b610c8772de849c49b07ab83",
+            "03ae4c28228488c0d773d0d5f13cf7f6e065b42f348c07b807103f8557537cdbc2"
+          ]
+        },
+        {
+          "path": "m/1/2",
+          "isChange": true,
+          "address": "pq0jnfmaxj3etdharssgy6rq84wrw48gpcqru926sy",
+          "publicKeys": [
+            "02c34fd7d5f739391e3acaa6f7ae3d5d94e1e83c832fa2b55a94d1c17095e79c04",
+            "03fcdbcae7aa1da8fda61d7742484ec5eb2cd26791e3c17ddbc7afdc14545d99b7"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "xec-899-2of3",
+      "coin": "xec",
+      "coinType": 899,
+      "isSlpToken": false,
+      "m": 2,
+      "n": 3,
+      "addressType": "P2SH",
+      "copayers": [
+        {
+          "label": "a",
+          "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+          "rootPath": "m/48'/899'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9zGqVAM79dusvq7QUuV7s4ntMoCVKQgBux7VMT67NPHbQ3AQsiaYiDbNAjKMs7X9MAjbppMzoVEPkpv2oGsq3gX8CJCX8VVRbdeL3zre2Hv",
+          "xPubKey": "xpub6DGBtfszz1UB9KBsaw28ECjcuq2yisQ3HB369qVivipaGqVZRFtoG1ur22t3fv4y7h7QK157Cdezu4asuF4LNo8c2QDWTrWWRgoms8SzFcb",
+          "requestPrivKey": "f78e344ac4fddf901925d9555a44db7c27a7785cd52d937065c3cedc7f0d7ebf",
+          "requestPubKey": "0267d4eadb5ad46a7a06c11c9085670b91a85e6a91cad50ff6084a9f287f40b235",
+          "copayerId": "8fed5ef1f1b5c842295e871ae84e430f1fae419521ee6fe173afbeb53b4f1e2e"
+        },
+        {
+          "label": "b",
+          "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+          "rootPath": "m/48'/899'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9yTQjthtdBJkMR5pixHY1BxaAy98rwBArVaDRwXDnqTna5yDkeFRVqdmG6wgHwRE2eGGQFCMWgyGyb4xiBm1Htw7voSorZLMRuZiHJGcFNT",
+          "xPubKey": "xpub6CSm9QEnTYs3ZuAHpypYNKuJizydGPu2DiVpEKvqMAzmStJNJBZg3dxF7PjvFStx5eV77Lw3ZviiXUHAdzKdFR1GYNPfPd6gVsiGrwPDk1a",
+          "requestPrivKey": "1ebe5bce2d99812e9f4cb6bceb8ff0a930b51276a629fff0e12e4728637f7f0a",
+          "requestPubKey": "02befcc7499abcecf9608bb05e665f374434a89ca0c4e9baeab7dd28c027143458",
+          "copayerId": "1aca1ce65b6902672dc8147f96fdafad871cac9e879e070bcd7176258366c152"
+        },
+        {
+          "label": "c",
+          "mnemonic": "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
+          "rootPath": "m/48'/899'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9ymSEtjNo1kNHC9yFegafbLwWKpfqtYDgTqiaTBb79BTRxWa2W6vVqaq7s1rVYAsxKvMVFcosZFkdi2bZjRbYCqhLakUiF6eCdYx2YmEmN4",
+          "xPubKey": "xpub6CkneQGGdPJfVgESMgDb2jHg4MfAFMG53gmKNqbCfUiSJkqia3RB3duJy7pd1b5VcL8qr3EdDFYkrXLHmBcP37VmeqXcGn5pzvPtj6oA8EB",
+          "requestPrivKey": "c925db8e3feb0d701419e2a769ba91aff3a8d50c9fededd17f9df0281672d2cc",
+          "requestPubKey": "0275785a45931c31f24fd80cb7bd4b472af7c106ee554714cae737d9b8dd07af6b",
+          "copayerId": "bc08dcd14b9f737a041fdb71172357bb9900dd881f5c5351f25015f2201825d1"
+        }
+      ],
+      "addresses": [
+        {
+          "path": "m/0/0",
+          "isChange": false,
+          "address": "pp7vfu7tgre8dvzvw0relrnl4la7gtdhyq9g7xt9d6",
+          "publicKeys": [
+            "03928d02f84f252471decabdd36911342d36ae0e2c9d45b70aa8aa98b90a0fe40f",
+            "0217237cba9c874a386c330870443511cffcb8b8ad173039f6811e8c3cf346324c",
+            "03ff902cd8fc23f72b4f97fc0f602a71edeed1a750558d0daf4f212bb438012ca3"
+          ]
+        },
+        {
+          "path": "m/0/1",
+          "isChange": false,
+          "address": "pzc2l0vf4jhk0c7zryuqzvn55e9xukpzquha0tsu76",
+          "publicKeys": [
+            "02f17ee60b0bc3e97b87a57296a4f67c3806ba63ec409a3891e8232dad4b8f4785",
+            "025d8baaec70db6eac4b83ad95a4b3628b9e5cbb7797dc27d1726c6191c8d1ffea",
+            "03c070f4abd183e1591646fbfac76c04e431f4dae0ec5712f278b47d2101e25e0e"
+          ]
+        },
+        {
+          "path": "m/0/2",
+          "isChange": false,
+          "address": "pqr0nxdvqc7rxssgfrasme8gjpeg7hgs8s5ew5t6yp",
+          "publicKeys": [
+            "02a4b7f2aac337ee3276ea5231f3f3a69539baa391ecef026728722816cd4e2ff1",
+            "03f074368b3389f068cafda327d7265e781f59ba77ac48b852601ab085ae67f1a0",
+            "03cb1e8e2fc11d27a272c3fd2eac33202a57b13226174f8f74d212239aa51b98af"
+          ]
+        },
+        {
+          "path": "m/1/0",
+          "isChange": true,
+          "address": "pzstyllka5leqg8jlxr5tnp7vstywfh5juumz8xkk2",
+          "publicKeys": [
+            "03777059a184370d11a496a11163485af2c524d8058a019d62f2f78a6fc005161c",
+            "03e6c73ed34063374474ad6aaa937948c8c555bf529c2facf2eceda787eab71e06",
+            "035b3e0f24eb41d71d38d696ff976edfd76ead55cffcc46ae9ee87f71e14cb7b37"
+          ]
+        },
+        {
+          "path": "m/1/1",
+          "isChange": true,
+          "address": "pq8ay6uvrv72hmmw5atz65jhz5mckztuks97rau5ca",
+          "publicKeys": [
+            "02a2bc08eb4c8b37fe5480d5195ad1a7f984b64c43b610c8772de849c49b07ab83",
+            "03ae4c28228488c0d773d0d5f13cf7f6e065b42f348c07b807103f8557537cdbc2",
+            "03e25f9cff618801085e3c00abc8576e888411934e5e016e300c3762840c9789f3"
+          ]
+        },
+        {
+          "path": "m/1/2",
+          "isChange": true,
+          "address": "prqt3ewm4ey0dyset2mts6esv5cqw56acyugtrfnkg",
+          "publicKeys": [
+            "02c34fd7d5f739391e3acaa6f7ae3d5d94e1e83c832fa2b55a94d1c17095e79c04",
+            "03fcdbcae7aa1da8fda61d7742484ec5eb2cd26791e3c17ddbc7afdc14545d99b7",
+            "0253c47284dd2e389208895b708363e9f66c3793aef91c5825073b256f3f0501cf"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "xec-1899-1of1",
+      "coin": "xec",
+      "coinType": 1899,
+      "isSlpToken": true,
+      "m": 1,
+      "n": 1,
+      "addressType": "P2PKH",
+      "copayers": [
+        {
+          "label": "a",
+          "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+          "rootPath": "m/44'/1899'/0'",
+          "addressType": "P2PKH",
+          "xPrivKey": "xprv9y2fQhcywTz85WiHvgmnzoUyFUTA6jzGqn4ZNCvUQdu8KnFfdvJxLvhfJGncR6JhqUhKNT8Kduii5B8rWSCwfCASjurnWoYXg7EWQb2pa9N",
+          "xPubKey": "xpub6C21pD9smqYRHznm2iJoMwRhoWHeWCi8CzzAAbL5xyS7CaapBTdCtj299XjXcMh8K34uji6TFHNtDaRQZUyqEC8ZMLrLPBn3VTQ5i1DHLbE",
+          "requestPrivKey": "f78e344ac4fddf901925d9555a44db7c27a7785cd52d937065c3cedc7f0d7ebf",
+          "requestPubKey": "0267d4eadb5ad46a7a06c11c9085670b91a85e6a91cad50ff6084a9f287f40b235",
+          "copayerId": "1d8ce1b3292ff1d0d8c33b5c4d6d98728eb9f89ea8a4e8ce57296adc3c03205c"
+        }
+      ],
+      "addresses": [
+        {
+          "path": "m/0/0",
+          "isChange": false,
+          "address": "qrwzys2q6xq98vwz0kjn6ulu5m6yljr5fyc909kalg",
+          "publicKeys": [
+            "03ee1364cd7af3a9ffbbbd886388776a6f92a7b8dd986f6a8578885e4b856f7bfb"
+          ]
+        },
+        {
+          "path": "m/0/1",
+          "isChange": false,
+          "address": "qz3w32n8ptaw37ens807egvx7ymvxcelwyaqrtpahe",
+          "publicKeys": [
+            "03b0057794c76e66de91c79eadc640ee98af236727929909ef9e79acd9aaaadeab"
+          ]
+        },
+        {
+          "path": "m/0/2",
+          "isChange": false,
+          "address": "qzz23t5un9n07h7ttrrkpvhdua9dwwk845qgg7rp9w",
+          "publicKeys": [
+            "037e47646c942c83a5bb52c585e1ee4df29e949ef28e0920e30748685dd462b03d"
+          ]
+        },
+        {
+          "path": "m/1/0",
+          "isChange": true,
+          "address": "qpmm5d03mq0rrxunry9p0f2qfk8tfd0ewuycxxg7gz",
+          "publicKeys": [
+            "02fdbec4d1f1a9ccf3cb3379d134ec52b371e617f99641124dc44e4937358a3142"
+          ]
+        },
+        {
+          "path": "m/1/1",
+          "isChange": true,
+          "address": "qz2v3f4mdq7xzn5h2h4pk6jp9khz3w09xv3xxt7a3u",
+          "publicKeys": [
+            "03efb4c15bc720381c3a0714c4f03973a65f608d91c3e810b9ebf11e5c43ee15f9"
+          ]
+        },
+        {
+          "path": "m/1/2",
+          "isChange": true,
+          "address": "qqwhpc8snrn0u95m332k56qc9n8gw5rc8ypeqqxagv",
+          "publicKeys": [
+            "03b1e6bd8225a36d84c64789cb7e9545084c36ac866afeed7741bca03a1efc2c13"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "xec-1899-2of2",
+      "coin": "xec",
+      "coinType": 1899,
+      "isSlpToken": true,
+      "m": 2,
+      "n": 2,
+      "addressType": "P2SH",
+      "copayers": [
+        {
+          "label": "a",
+          "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+          "rootPath": "m/48'/1899'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9ynRwWdMYpVtxps6oFrciEN4Dmu8fYHrk3NXL23zTWjNr9wbn7TGdKS24kdnVRmPv6p4UgTTPZsT9bLgfna9J3fMic9peRtrkDtBLhYRniM",
+          "xPubKey": "xpub6CmnM2AFPC4CBJwZuHPd5NJnmojd511i7GJ88QTc1rGMixGkKemXB7kVv1unVVmEzch9NQ8ipw9K7JX57ZbYoHC1CZSaUFU1FiFTDKgaUsk",
+          "requestPrivKey": "f78e344ac4fddf901925d9555a44db7c27a7785cd52d937065c3cedc7f0d7ebf",
+          "requestPubKey": "0267d4eadb5ad46a7a06c11c9085670b91a85e6a91cad50ff6084a9f287f40b235",
+          "copayerId": "33f620973d415d13b3289844009c4c0d92f7f8bec947fe4f9eb6d809dbff9d94"
+        },
+        {
+          "label": "b",
+          "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+          "rootPath": "m/48'/1899'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9yK7LdBpwx5TF3RfkbrFMu9eduFnN9BgUT6otqaz4P7DZvnGPiod98eXdz4sS9tWGfvoxHZaxkbHERAmjj17xCXpBAxyqMyQLgibGunsuku",
+          "xPubKey": "xpub6CJTk8iinKdkTXW8rdPFj36PBw6GmbuXqg2QhDzbcieCSj7QwG7sgvy1VGx8FFxtg2PAdgQCZ1s8azJteWA6QaXTco1U5yNJkbT6gwF9SAT",
+          "requestPrivKey": "1ebe5bce2d99812e9f4cb6bceb8ff0a930b51276a629fff0e12e4728637f7f0a",
+          "requestPubKey": "02befcc7499abcecf9608bb05e665f374434a89ca0c4e9baeab7dd28c027143458",
+          "copayerId": "c87e9abb340a0c2aed6a78f9a1a43ea2a216602a50c67c5ad04e0a1213055fe4"
+        }
+      ],
+      "addresses": [
+        {
+          "path": "m/0/0",
+          "isChange": false,
+          "address": "pzycczrhmdzjtqxcmyfm3qp2fky8lfvv0ctx4xcy8f",
+          "publicKeys": [
+            "024a9d6b9d6f8e0f7309e535742cf2b943744cb13d032018d7580a70956295f5e5",
+            "022db0584b3257827d9aefd57f9ef9edb93cf45cc26fb1dc636fc3e80d496604a5"
+          ]
+        },
+        {
+          "path": "m/0/1",
+          "isChange": false,
+          "address": "pqp8yq5pamserpe6tx26vy82mac0j0z3q5z5m66gm8",
+          "publicKeys": [
+            "02b803ff365e6489ec2c32f1fc4a65e0e7105bee12ef4d6fd17d28ba16e86e4d24",
+            "028a9772942793806a6cde6dc68287520c5c6629ac9f1a730e15cb25cb39dd014c"
+          ]
+        },
+        {
+          "path": "m/0/2",
+          "isChange": false,
+          "address": "ppvxvk9gf8msgmp38xn2hhysgpnvjuds3gkq85jfd9",
+          "publicKeys": [
+            "02820fa47acffb6b168e7f8eca695cf68e21d2b4efeb7bf16004068d7a9ed85c9c",
+            "023d17579bae53150c5a0d640cfe5261b13d93d1489b511f7bb09d248569c6f4d9"
+          ]
+        },
+        {
+          "path": "m/1/0",
+          "isChange": true,
+          "address": "pqu6s8cseks3k5l5zs04fvf73pvvxzn4gu5gtjum7e",
+          "publicKeys": [
+            "0201a9c5cfc6c7868547a0f5aac46d55522d2ae63b6d791ee5304b538ca95bd9e7",
+            "0230051bc5b88eddda080d249771fafd68ff0ba2b367dd4aa21e8c399368ac91f6"
+          ]
+        },
+        {
+          "path": "m/1/1",
+          "isChange": true,
+          "address": "ppe5dzfc9zxjpc3y2598h930e7a3tp8xnywj4w4gsg",
+          "publicKeys": [
+            "0204fb66f36b089f57574f2396583114a55ea7f8431a937bdc7e99bfb0ab0853c4",
+            "0334f2aaa010d7f9f91ef09bce5cbe121c353fe744c5c1cc5b0c4e405ce26749dd"
+          ]
+        },
+        {
+          "path": "m/1/2",
+          "isChange": true,
+          "address": "pzxr753l2qyat4d7s7pquuz9atth0p9sqqrlqq6au2",
+          "publicKeys": [
+            "03566a0e4e56bed3522da01ffa976ace8530326e985c3084e0ebde31b15453a67a",
+            "02d3f4d800abd5035e5192e4a9fd59f472619720e89f2f0e4485b53e3846e0a499"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "xec-1899-2of3",
+      "coin": "xec",
+      "coinType": 1899,
+      "isSlpToken": true,
+      "m": 2,
+      "n": 3,
+      "addressType": "P2SH",
+      "copayers": [
+        {
+          "label": "a",
+          "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+          "rootPath": "m/48'/1899'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9ynRwWdMYpVtxps6oFrciEN4Dmu8fYHrk3NXL23zTWjNr9wbn7TGdKS24kdnVRmPv6p4UgTTPZsT9bLgfna9J3fMic9peRtrkDtBLhYRniM",
+          "xPubKey": "xpub6CmnM2AFPC4CBJwZuHPd5NJnmojd511i7GJ88QTc1rGMixGkKemXB7kVv1unVVmEzch9NQ8ipw9K7JX57ZbYoHC1CZSaUFU1FiFTDKgaUsk",
+          "requestPrivKey": "f78e344ac4fddf901925d9555a44db7c27a7785cd52d937065c3cedc7f0d7ebf",
+          "requestPubKey": "0267d4eadb5ad46a7a06c11c9085670b91a85e6a91cad50ff6084a9f287f40b235",
+          "copayerId": "33f620973d415d13b3289844009c4c0d92f7f8bec947fe4f9eb6d809dbff9d94"
+        },
+        {
+          "label": "b",
+          "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+          "rootPath": "m/48'/1899'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9yK7LdBpwx5TF3RfkbrFMu9eduFnN9BgUT6otqaz4P7DZvnGPiod98eXdz4sS9tWGfvoxHZaxkbHERAmjj17xCXpBAxyqMyQLgibGunsuku",
+          "xPubKey": "xpub6CJTk8iinKdkTXW8rdPFj36PBw6GmbuXqg2QhDzbcieCSj7QwG7sgvy1VGx8FFxtg2PAdgQCZ1s8azJteWA6QaXTco1U5yNJkbT6gwF9SAT",
+          "requestPrivKey": "1ebe5bce2d99812e9f4cb6bceb8ff0a930b51276a629fff0e12e4728637f7f0a",
+          "requestPubKey": "02befcc7499abcecf9608bb05e665f374434a89ca0c4e9baeab7dd28c027143458",
+          "copayerId": "c87e9abb340a0c2aed6a78f9a1a43ea2a216602a50c67c5ad04e0a1213055fe4"
+        },
+        {
+          "label": "c",
+          "mnemonic": "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
+          "rootPath": "m/48'/1899'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9zXFN9Uz4dEVx5nLJeDsJcUC4Cb4vivubN2G67DhkTYnJ8JfqNNDHTWbfMMf7o29wPqyaPUziWcxH7wTdoh2LVTuo1zXNABHkNS73MnGV5a",
+          "xPubKey": "xpub6DWbmf1stznoAZroQfksfkQvcERZLBekxawrtVdKJo5mAvdpNugTqFq5Wc9jiS75Y3URTu4kSZheuzQf3gZkJX5x935iUFMVnCjbyHN2CXH",
+          "requestPrivKey": "c925db8e3feb0d701419e2a769ba91aff3a8d50c9fededd17f9df0281672d2cc",
+          "requestPubKey": "0275785a45931c31f24fd80cb7bd4b472af7c106ee554714cae737d9b8dd07af6b",
+          "copayerId": "c29bf81baf808bfa3356b7fac3ce25c4fccf726f4d34698d5b26119cfd3908ff"
+        }
+      ],
+      "addresses": [
+        {
+          "path": "m/0/0",
+          "isChange": false,
+          "address": "ppwm3c6ffz29vv44ndh4sv52ylsz7ckz85qgma4jxg",
+          "publicKeys": [
+            "024a9d6b9d6f8e0f7309e535742cf2b943744cb13d032018d7580a70956295f5e5",
+            "022db0584b3257827d9aefd57f9ef9edb93cf45cc26fb1dc636fc3e80d496604a5",
+            "0380100cb9a1f376fe93f00a15076ea3c49a63295fb9f2eb2d9b204dcf4f70a29f"
+          ]
+        },
+        {
+          "path": "m/0/1",
+          "isChange": false,
+          "address": "pzmlshf9hhsgle0faqynf6hsu37q4kqjjstmzdntgs",
+          "publicKeys": [
+            "02b803ff365e6489ec2c32f1fc4a65e0e7105bee12ef4d6fd17d28ba16e86e4d24",
+            "028a9772942793806a6cde6dc68287520c5c6629ac9f1a730e15cb25cb39dd014c",
+            "0218ee03312aa0938e2759ae4a6d79c2cd2f6f6aa9c63d1234fe9ea86e4efa4f74"
+          ]
+        },
+        {
+          "path": "m/0/2",
+          "isChange": false,
+          "address": "prfarvxejw7s752zq3khv4jfm59yw3mvvced9c48zj",
+          "publicKeys": [
+            "02820fa47acffb6b168e7f8eca695cf68e21d2b4efeb7bf16004068d7a9ed85c9c",
+            "023d17579bae53150c5a0d640cfe5261b13d93d1489b511f7bb09d248569c6f4d9",
+            "03e2bdd1e3fadd71dbfe0a99608499503240096b85132350623da5d5c8da80c6e3"
+          ]
+        },
+        {
+          "path": "m/1/0",
+          "isChange": true,
+          "address": "pz96j574zvxyf66z3xue5n02dkyqfnd4a5evvxa0j6",
+          "publicKeys": [
+            "0201a9c5cfc6c7868547a0f5aac46d55522d2ae63b6d791ee5304b538ca95bd9e7",
+            "0230051bc5b88eddda080d249771fafd68ff0ba2b367dd4aa21e8c399368ac91f6",
+            "0235637eb70ccff4c03b20de358a86651509564880db31f00effdf1ab0f464cf7b"
+          ]
+        },
+        {
+          "path": "m/1/1",
+          "isChange": true,
+          "address": "pz9d7hsldat0nz2am8frfdnwfzvzw6ca7s7lay7lmv",
+          "publicKeys": [
+            "0204fb66f36b089f57574f2396583114a55ea7f8431a937bdc7e99bfb0ab0853c4",
+            "0334f2aaa010d7f9f91ef09bce5cbe121c353fe744c5c1cc5b0c4e405ce26749dd",
+            "03bce0cbe00e5f62a8ee8cd25abb8ee81ec3c0c89a0c5294f82f4166f9a9375b23"
+          ]
+        },
+        {
+          "path": "m/1/2",
+          "isChange": true,
+          "address": "pp8e374q8g9d43zm4zfhr0x0syrdrvswqu0yxlfajn",
+          "publicKeys": [
+            "03566a0e4e56bed3522da01ffa976ace8530326e985c3084e0ebde31b15453a67a",
+            "02d3f4d800abd5035e5192e4a9fd59f472619720e89f2f0e4485b53e3846e0a499",
+            "02ec728b6a474fe5425f356476dc82bd353310fe0b3147691d21cc3fbd30cbac1c"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "doge-3-1of1",
+      "coin": "doge",
+      "coinType": 3,
+      "isSlpToken": false,
+      "m": 1,
+      "n": 1,
+      "addressType": "P2PKH",
+      "copayers": [
+        {
+          "label": "a",
+          "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+          "rootPath": "m/44'/3'/0'",
+          "addressType": "P2PKH",
+          "xPrivKey": "xprv9xyXEcdZAnLr4ksrnMUDomgcA7NKwVfyazzyywd3hYp8bStsra9CxdMakWggHm5euGaymbYVKhwFcYVxnPzrZs4Gvo92AxQ5BuaP4JXiQgb",
+          "xPubKey": "xpub6Bxse8AT19u9HExKtP1EAudLi9CpLxPpxDvanL2fFtM7UFE2Q7TTWRg4bnMnmT4KcyN6GQkSgZmPWDtyUywSii3MDpMNfXSTuzH7gvZywLU",
+          "requestPrivKey": "f78e344ac4fddf901925d9555a44db7c27a7785cd52d937065c3cedc7f0d7ebf",
+          "requestPubKey": "0267d4eadb5ad46a7a06c11c9085670b91a85e6a91cad50ff6084a9f287f40b235",
+          "copayerId": "ebcbd4ff5ace5b36c6f2e00ff900635ae2f982789f79aea8d9cb67d0b13cca73"
+        }
+      ],
+      "addresses": [
+        {
+          "path": "m/0/0",
+          "isChange": false,
+          "address": "DBus3bamQjgJULBJtYXpEzDWQRwF5iwxgC",
+          "publicKeys": [
+            "02cc6b0dc33aabcf3a23643e5e2919a80c50fb3dd2129ce409bbc5f0d4643d05e0"
+          ]
+        },
+        {
+          "path": "m/0/1",
+          "isChange": false,
+          "address": "DAcDAtJRztxBHyA6D6h8du1HguyTR43Mas",
+          "publicKeys": [
+            "025a8ad8881f6facdc949c4a4d03257414153faea67e96acf57344660080610788"
+          ]
+        },
+        {
+          "path": "m/0/2",
+          "isChange": false,
+          "address": "D8K3KyDQ9FXeC3ADCuWW7cnWC7RvjHjV8H",
+          "publicKeys": [
+            "03fe19b65ecafe39cc63894f23991a97c0a7f416080cb85da583ed49c5c4cf14ba"
+          ]
+        },
+        {
+          "path": "m/1/0",
+          "isChange": true,
+          "address": "D7ReBLrRv12mi9pYh5HtfFLTt1PSoeAa7e",
+          "publicKeys": [
+            "020745c065a8b7cb03a843a57339cf9164d675a2e5010c6fbd61c09239bbb5f4df"
+          ]
+        },
+        {
+          "path": "m/1/1",
+          "isChange": true,
+          "address": "D92vUBQJjMhmczzGf7ReUswoDEZuqaNout",
+          "publicKeys": [
+            "02475f40b385bb486ef27171fe119a89ce9b46fa1ab0f5bc542ee0e1e1fcd78623"
+          ]
+        },
+        {
+          "path": "m/1/2",
+          "isChange": true,
+          "address": "D8NfTfXgmKnvrPejr4utmwxRgapNvcbyA6",
+          "publicKeys": [
+            "03215544ce99e5a0a0de39fe6b23a02c12989b6e42df4bc7a79dd7aa5f1d1821da"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "doge-3-2of2",
+      "coin": "doge",
+      "coinType": 3,
+      "isSlpToken": false,
+      "m": 2,
+      "n": 2,
+      "addressType": "P2SH",
+      "copayers": [
+        {
+          "label": "a",
+          "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+          "rootPath": "m/48'/3'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9zFqByJrEBxmzjJpjxxp2h7r21Nxnukr8PHnKM4C9reLUC2u7ouaHP1Ac79fPioZnENtSibZTz5kXdFVfceiZJUr8seEKnwHrQkBThWegr4",
+          "xPubKey": "xpub6DFBbUqk4ZX5DDPHqzVpPq4aa3DTCNUhVcDP7jToiCBKLzN3fMDpqBKeTRTL62HMK1F7ZsqkWxhxjHgdcZwQi1XXgjra46k1za4SzuX8aP9",
+          "requestPrivKey": "f78e344ac4fddf901925d9555a44db7c27a7785cd52d937065c3cedc7f0d7ebf",
+          "requestPubKey": "0267d4eadb5ad46a7a06c11c9085670b91a85e6a91cad50ff6084a9f287f40b235",
+          "copayerId": "f408c1d299fd59537f245b150c48d726500b278ed8fff80e8e488c12b1834302"
+        },
+        {
+          "label": "b",
+          "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+          "rootPath": "m/48'/3'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9yg1sjyQL6SmxCzpa3PrBfbvaknKk4Sze6vsCspWkHK9DnayNy7FBViSRgS3mtBRsR7kBQ4afEi42iSqSFk1W8ux8rhZfFGhUXip4Jq1tG9",
+          "xPubKey": "xpub6CfNHFWJAU15Ah5Hg4vrYoYf8ncp9XAr1KrU1GE8Jcr86av7vWRVjJ2vGxvBfsfuoZVew2Bz1putH8DyLdQ7xh2jh2HMVGRVbCXngMe7fzJ",
+          "requestPrivKey": "1ebe5bce2d99812e9f4cb6bceb8ff0a930b51276a629fff0e12e4728637f7f0a",
+          "requestPubKey": "02befcc7499abcecf9608bb05e665f374434a89ca0c4e9baeab7dd28c027143458",
+          "copayerId": "b392c0a5330e55e94d976fb22431113dc5e57e1814282dbdd7f7a3abfb24096c"
+        }
+      ],
+      "addresses": [
+        {
+          "path": "m/0/0",
+          "isChange": false,
+          "address": "9y4j4dX4zKqkxdJHBWsgpkwBBGzhhFVsi7",
+          "publicKeys": [
+            "020f6602ab5a2774d48527fdd0ef4bec0e14e145c92718d5d57393fc004d15b1a4",
+            "032cb057e5e23f4042eb86907ed5f33d8b5275ce2790bf19fd0599b3fcb1cb4e79"
+          ]
+        },
+        {
+          "path": "m/0/1",
+          "isChange": false,
+          "address": "9vNr6xhyxMAqEKjhDzuWqBhrfShAYcjkiH",
+          "publicKeys": [
+            "0323a201077d7c06cd568a4bfac2b5aeb56d84bd34bc6806309e763608156046cb",
+            "02bb46aec32c32821010e34a3030e5824b2e0d94a3d8858988f77b7c6beea6114d"
+          ]
+        },
+        {
+          "path": "m/0/2",
+          "isChange": false,
+          "address": "A3zVkCfktMQQLbzSUJKmFRXWFAWtCHMAcG",
+          "publicKeys": [
+            "028bf8a3eb6d2ffbd9b4103757999ad1ed7fbbd37fb82a5b8b55ef7caf0e2232c3",
+            "0324a4ad3d9e77dbd587e0dae3a323bb0096df1b067d1313a5640e118391e585eb"
+          ]
+        },
+        {
+          "path": "m/1/0",
+          "isChange": true,
+          "address": "9scQGYvkRuS255GFMapj6xjnQtjSDbk9M4",
+          "publicKeys": [
+            "02860dd0de263fcf4cc24ea183ffa86039eaf2e3d8aa272a9970560402e2a1becf",
+            "033149a83d3e162e0d82484da0b081857dd7eb605701036f454b5f1831da86c3dd"
+          ]
+        },
+        {
+          "path": "m/1/1",
+          "isChange": true,
+          "address": "A3Rca2y1mfWe12yocx351uCcWTUFqR8MQj",
+          "publicKeys": [
+            "02d42184c6a841667403800de56abfbda5eaa169f4582e80ddb57d9a08f7ac9788",
+            "022423cda3a78b6b0d03d6b80be2c5a749030d2e9c17080256f1df8ff9cf7d9fec"
+          ]
+        },
+        {
+          "path": "m/1/2",
+          "isChange": true,
+          "address": "ACJqzVFVysSKDGTMeuRroa29rUjRCCz6xh",
+          "publicKeys": [
+            "02e344c52347e66b6c3427738b266aee027b49abf1ac3d4e23eac681ae66492567",
+            "03f45180fef31fd224d7cfbd55d407ab74a0682f74a3105774509074d4665dfe5b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "doge-3-2of3",
+      "coin": "doge",
+      "coinType": 3,
+      "isSlpToken": false,
+      "m": 2,
+      "n": 3,
+      "addressType": "P2SH",
+      "copayers": [
+        {
+          "label": "a",
+          "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+          "rootPath": "m/48'/3'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9zFqByJrEBxmzjJpjxxp2h7r21Nxnukr8PHnKM4C9reLUC2u7ouaHP1Ac79fPioZnENtSibZTz5kXdFVfceiZJUr8seEKnwHrQkBThWegr4",
+          "xPubKey": "xpub6DFBbUqk4ZX5DDPHqzVpPq4aa3DTCNUhVcDP7jToiCBKLzN3fMDpqBKeTRTL62HMK1F7ZsqkWxhxjHgdcZwQi1XXgjra46k1za4SzuX8aP9",
+          "requestPrivKey": "f78e344ac4fddf901925d9555a44db7c27a7785cd52d937065c3cedc7f0d7ebf",
+          "requestPubKey": "0267d4eadb5ad46a7a06c11c9085670b91a85e6a91cad50ff6084a9f287f40b235",
+          "copayerId": "f408c1d299fd59537f245b150c48d726500b278ed8fff80e8e488c12b1834302"
+        },
+        {
+          "label": "b",
+          "mnemonic": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+          "rootPath": "m/48'/3'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9yg1sjyQL6SmxCzpa3PrBfbvaknKk4Sze6vsCspWkHK9DnayNy7FBViSRgS3mtBRsR7kBQ4afEi42iSqSFk1W8ux8rhZfFGhUXip4Jq1tG9",
+          "xPubKey": "xpub6CfNHFWJAU15Ah5Hg4vrYoYf8ncp9XAr1KrU1GE8Jcr86av7vWRVjJ2vGxvBfsfuoZVew2Bz1putH8DyLdQ7xh2jh2HMVGRVbCXngMe7fzJ",
+          "requestPrivKey": "1ebe5bce2d99812e9f4cb6bceb8ff0a930b51276a629fff0e12e4728637f7f0a",
+          "requestPubKey": "02befcc7499abcecf9608bb05e665f374434a89ca0c4e9baeab7dd28c027143458",
+          "copayerId": "b392c0a5330e55e94d976fb22431113dc5e57e1814282dbdd7f7a3abfb24096c"
+        },
+        {
+          "label": "c",
+          "mnemonic": "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
+          "rootPath": "m/48'/3'/0'",
+          "addressType": "P2SH",
+          "xPrivKey": "xprv9zFhZwMSwapuLCmBwJfnH3DbMhCWqiDGY1K3S3RQPXzLMHAci8Gaw9XW2XwQEgD4iwvLHUSGqw5JcQEn5kqgDr7hSWycCeUF6ogYSS5aRYS",
+          "xPubKey": "xpub6DF3yStLmxPCYgqf3LCneBAKuj31FAw7uEEeERq1wsXKE5VmFfaqUwqysnMYru5Ysh4WNFMy995ELYDb7xfdWd92SPA3amRqVpfXxWnDuiq",
+          "requestPrivKey": "c925db8e3feb0d701419e2a769ba91aff3a8d50c9fededd17f9df0281672d2cc",
+          "requestPubKey": "0275785a45931c31f24fd80cb7bd4b472af7c106ee554714cae737d9b8dd07af6b",
+          "copayerId": "c728737878d37819ab5e3a2357f66ccc20c3c4b7da8af9251daffb94f7826b9e"
+        }
+      ],
+      "addresses": [
+        {
+          "path": "m/0/0",
+          "isChange": false,
+          "address": "A1PAHnu5U4bAGCFyY89qGscvJ11xnZixmq",
+          "publicKeys": [
+            "020f6602ab5a2774d48527fdd0ef4bec0e14e145c92718d5d57393fc004d15b1a4",
+            "032cb057e5e23f4042eb86907ed5f33d8b5275ce2790bf19fd0599b3fcb1cb4e79",
+            "02e88aa0732b40f5d11c278827f0380fb463a7b9652148bf1b716b9652cfbb8047"
+          ]
+        },
+        {
+          "path": "m/0/1",
+          "isChange": false,
+          "address": "9s96HSLxne4gXyMUqa1qMyftHSSYA9jw6C",
+          "publicKeys": [
+            "0323a201077d7c06cd568a4bfac2b5aeb56d84bd34bc6806309e763608156046cb",
+            "02bb46aec32c32821010e34a3030e5824b2e0d94a3d8858988f77b7c6beea6114d",
+            "02eb542092accfe560c234064b585ee711bfeeb5e058a510d103a143a622639509"
+          ]
+        },
+        {
+          "path": "m/0/2",
+          "isChange": false,
+          "address": "A1y7p3AfDts2mcJwwC3MZYntTtAtiSyNL6",
+          "publicKeys": [
+            "028bf8a3eb6d2ffbd9b4103757999ad1ed7fbbd37fb82a5b8b55ef7caf0e2232c3",
+            "0324a4ad3d9e77dbd587e0dae3a323bb0096df1b067d1313a5640e118391e585eb",
+            "02c063b7b549aaabfc7a005bfaaee40221ccd68108755577079e1bda66cd1926db"
+          ]
+        },
+        {
+          "path": "m/1/0",
+          "isChange": true,
+          "address": "ACQPZQja98VsPuM8deBjmhDsJSvZpWqoTS",
+          "publicKeys": [
+            "02860dd0de263fcf4cc24ea183ffa86039eaf2e3d8aa272a9970560402e2a1becf",
+            "033149a83d3e162e0d82484da0b081857dd7eb605701036f454b5f1831da86c3dd",
+            "020fac30f84f0502587f22f22175fb3bc9e54162b95ad851fc9910f6e702cc6d15"
+          ]
+        },
+        {
+          "path": "m/1/1",
+          "isChange": true,
+          "address": "9tDMa8ASukDfydsiRH3gjTVCma1UmnS338",
+          "publicKeys": [
+            "02d42184c6a841667403800de56abfbda5eaa169f4582e80ddb57d9a08f7ac9788",
+            "022423cda3a78b6b0d03d6b80be2c5a749030d2e9c17080256f1df8ff9cf7d9fec",
+            "02896d5070ef813023f01f051ab9223daf8f967653f257a29ea30edc633e1ff565"
+          ]
+        },
+        {
+          "path": "m/1/2",
+          "isChange": true,
+          "address": "A352QhKu4ocATsKdG4JtFautQ5TMuuRV69",
+          "publicKeys": [
+            "02e344c52347e66b6c3427738b266aee027b49abf1ac3d4e23eac681ae66492567",
+            "03f45180fef31fd224d7cfbd55d407ab74a0682f74a3105774509074d4665dfe5b",
+            "02a8aef332e3f7a9f6bca9a11e873726fa1ae1f05ab4506870abb07e8e3c63b743"
+          ]
+        }
+      ]
+    }
+  ],
+  "auth": {
+    "copayerId": "f711a9be4ec9da3cb4e5df2c04291d13d29d2cff8c7bc7bc8e96c390de4fa6e7",
+    "requestPubKey": "0267d4eadb5ad46a7a06c11c9085670b91a85e6a91cad50ff6084a9f287f40b235",
+    "vectors": [
+      {
+        "message": "get|/v3/wallets/?includeExtendedInfo=1&serverMessageArray=1&r=12345|{}",
+        "signature": "3045022100fae93781c054c0f8b924bc64a10e4fcd0f4c5c0e1e356d0f7eb4d4f01034a1e302203691fe457beea967bf4d793ca344102c65455ce1c70ea509806d13f136766c34"
+      },
+      {
+        "message": "get|/v1/balance/?r=54321|{}",
+        "signature": "304402206918de6b4e7041e4b2fed3b8c42f20ae090f0035cd22b41f914b86f82741787b022070d88d386c12c0eb7f54c6039447857159937e6f4d141632a8c137e7750c093f"
+      },
+      {
+        "message": "post|/v4/addresses/|{\"isChange\":false}",
+        "signature": "3045022100afae170cb425639969c1794547e756397d2f335b9587a517503b860930de35bc022076a567a85b9b4cbfbbf0cdbbd9b4c74561d0e14c501da23cec21a3f458eb3d3b"
+      },
+      {
+        "message": "post|/v3/txproposals/|{\"proposals\":[{\"outputs\":[{\"toAddress\":\"ecash:qrwzys2q6xq98vwz0kjn6ulu5m6yljr5fyc909kalg\",\"amount\":1000}]}]}",
+        "signature": "304402206b38e205ed90df68ba519c55233d06342b4c3b07f2ed9d83650c92a258da28d602203d72e3f3ac18d1d355dd80082ecc823d803f40180d5f09714d0addab63215066"
+      }
+    ]
+  },
+  "secret": {
+    "walletId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+    "walletPrivKey": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "walletPrivKeyWif": "L4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1",
+    "xec": "Ly6eTFZPoSTkHnzaCnBwzFL4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1Lxec",
+    "doge": "Ly6eTFZPoSTkHnzaCnBwzFL4rK1yDtCWekvXuE6oXD9jCYfFNV2cWRpVuPLBcCU2z8TrisoyY1Ldoge"
+  }
+}

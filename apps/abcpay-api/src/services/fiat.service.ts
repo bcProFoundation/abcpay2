@@ -1,42 +1,57 @@
+import { eq, and, gt } from 'drizzle-orm';
 import type { SupportedCoin } from '@bcpros/abcpay-models';
+import { db } from '../db';
+import { fiatRates } from '../db/schema';
 
 const COINGECKO_IDS: Record<SupportedCoin, string> = {
   xec: 'ecash',
   doge: 'dogecoin'
 };
 
-const FALLBACK: Record<SupportedCoin, number> = {
-  xec: 0.00002,
-  doge: 0.15
-};
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
-let cache: { at: number; rates: Record<string, number> } | null = null;
+export class FiatService {
+  async getRate(coin: SupportedCoin, code = 'usd'): Promise<{ rate: number; fetchedOn: number }> {
+    const cached = await db
+      .select()
+      .from(fiatRates)
+      .where(
+        and(
+          eq(fiatRates.coin, coin),
+          eq(fiatRates.code, code),
+          gt(fiatRates.fetchedAt, new Date(Date.now() - CACHE_TTL_MS))
+        )
+      )
+      .limit(1);
 
-export async function getFiatRate(code: string): Promise<{ rate: number; fetchedOn: number }> {
-  const coin = code.toLowerCase() as SupportedCoin;
-  const now = Date.now();
-  if (cache && now - cache.at < 60_000) {
-    return { rate: cache.rates[coin] ?? 0, fetchedOn: cache.at };
-  }
+    if (cached.length > 0) {
+      return {
+        rate: parseFloat(cached[0].rate),
+        fetchedOn: cached[0].fetchedAt.getTime()
+      };
+    }
 
-  try {
-    const ids = Object.values(COINGECKO_IDS).join(',');
+    const geckoId = COINGECKO_IDS[coin];
     const res = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`,
-      { headers: { accept: 'application/json' } }
+      `https://api.coingecko.com/api/v3/simple/price?ids=${geckoId}&vs_currencies=${code}`
     );
-    if (!res.ok) throw new Error('rate provider error');
-    const json = (await res.json()) as Record<string, { usd: number }>;
-    cache = {
-      at: now,
-      rates: {
-        xec: json.ecash?.usd ?? FALLBACK.xec,
-        doge: json.dogecoin?.usd ?? FALLBACK.doge
-      }
-    };
-  } catch {
-    cache = { at: now, rates: FALLBACK };
-  }
 
-  return { rate: cache.rates[coin] ?? 0, fetchedOn: cache.at };
+    if (!res.ok) {
+      const fallback: Record<SupportedCoin, number> = { xec: 0.00004, doge: 0.35 };
+      return { rate: fallback[coin], fetchedOn: Date.now() };
+    }
+
+    const data = (await res.json()) as Record<string, Record<string, number>>;
+    const rate = data[geckoId]?.[code] ?? 0;
+
+    await db.insert(fiatRates).values({
+      coin,
+      code,
+      rate: rate.toString()
+    });
+
+    return { rate, fetchedOn: Date.now() };
+  }
 }
+
+export const fiatService = new FiatService();

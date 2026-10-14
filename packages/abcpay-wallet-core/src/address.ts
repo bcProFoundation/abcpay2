@@ -57,10 +57,22 @@ export function encodeHashAddress(
   return b58.encode(payload);
 }
 
+function decodeXecAddress(address: string) {
+  const candidates = address.includes(':') ? [address] : [`ecash:${address}`, address];
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return decodeCashAddress(candidate);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
 export function decodeAddress(coin: SupportedCoin, address: string): DecodedAddress {
   if (coin === 'xec') {
-    const normalized = normalizeXecAddress(address);
-    const decoded = decodeCashAddress(normalized);
+    const decoded = decodeXecAddress(address);
     const type = decoded.type.toLowerCase() as 'p2pkh' | 'p2sh';
     const hash = typeof decoded.hash === 'string' ? hexToBytes(decoded.hash) : new Uint8Array(decoded.hash);
     return {
@@ -91,9 +103,6 @@ export function normalizeXecAddress(address: string): string {
 
 export function validateAddress(coin: SupportedCoin, address: string): boolean {
   try {
-    if (coin === 'xec') {
-      return isValidCashAddress(normalizeXecAddress(address));
-    }
     decodeAddress(coin, address);
     return true;
   } catch {
@@ -127,7 +136,8 @@ export function deriveWalletAddress(opts: {
   n: number;
   path: string;
 }): DerivedAddress {
-  const publicKeys = sortPublicKeys(opts.xPubKeys.map(xpub => derivePublicKey(xpub, opts.path)));
+  const publicKeys = opts.xPubKeys.map(xpub => derivePublicKey(xpub, opts.path));
+  const sortedPublicKeys = sortPublicKeys(publicKeys);
   const network = opts.network ?? 'livenet';
 
   if (opts.n === 1) {
@@ -141,7 +151,7 @@ export function deriveWalletAddress(opts: {
     };
   }
 
-  const redeem = multisigRedeemScript(opts.m, publicKeysToBytes(publicKeys));
+  const redeem = multisigRedeemScript(opts.m, publicKeysToBytes(sortedPublicKeys));
   const address = encodeP2shAddress(opts.coin, redeemScriptHash(redeem), network);
   return {
     address,
@@ -151,6 +161,70 @@ export function deriveWalletAddress(opts: {
     redeemScript: bytesToHex(redeem),
     scriptPubKey: scriptPubKeyHexFromAddress(opts.coin, address)
   };
+}
+
+export function scriptKey(coin: SupportedCoin, address: string): string {
+  try {
+    const decoded = decodeAddress(coin, address);
+    return `${decoded.type}:${decoded.hashHex}`;
+  } catch {
+    return `raw:${address}`;
+  }
+}
+
+export function scriptPubKeyToAddress(
+  coin: SupportedCoin,
+  script: Uint8Array,
+  network: Network = 'livenet'
+): string {
+  if (
+    script.length === 25 &&
+    script[0] === 0x76 &&
+    script[1] === 0xa9 &&
+    script[2] === 0x14 &&
+    script[23] === 0x88 &&
+    script[24] === 0xac
+  ) {
+    return encodeHashAddress(coin, 'p2pkh', script.slice(3, 23), network);
+  }
+  if (
+    script.length === 23 &&
+    script[0] === 0xa9 &&
+    script[1] === 0x14 &&
+    script[22] === 0x87
+  ) {
+    return encodeHashAddress(coin, 'p2sh', script.slice(2, 22), network);
+  }
+  throw new Error('Unsupported output script');
+}
+
+export function addressMatchesDerivation(opts: {
+  coin: SupportedCoin;
+  network: 'livenet' | 'testnet';
+  xPubKeys: string[];
+  m: number;
+  n: number;
+  path: string;
+  address: string;
+}): boolean {
+  try {
+    if (opts.coin === 'xec' && opts.address.includes(':')) {
+      const expectedPrefix = COIN_CONFIGS.xec.protocolPrefix[opts.network].toLowerCase();
+      const actualPrefix = (decodeAddress(opts.coin, opts.address).prefix ?? '').toLowerCase();
+      if (actualPrefix && actualPrefix !== expectedPrefix) return false;
+    }
+    const derived = deriveWalletAddress({
+      coin: opts.coin,
+      network: opts.network,
+      xPubKeys: opts.xPubKeys,
+      m: opts.m,
+      n: opts.n,
+      path: opts.path
+    });
+    return scriptKey(opts.coin, derived.address) === scriptKey(opts.coin, opts.address);
+  } catch {
+    return false;
+  }
 }
 
 export { isValidCashAddress };

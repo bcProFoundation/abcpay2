@@ -3,6 +3,7 @@ import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from '@scure/b
 import { wordlist } from '@scure/bip39/wordlists/english';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import type { SupportedCoin } from '@bcpros/abcpay-models';
+import { defaultWalletCoinType } from '@bcpros/abcpay-models';
 import { bytesToHex, hexToBytes, utf8ToBytes } from './bytes';
 import { sha256Hex } from './hash';
 import { getRootPath } from './derivation';
@@ -34,6 +35,28 @@ export function copayerIdFromXpub(coin: SupportedCoin, xPubKey: string): string 
   return sha256Hex(utf8ToBytes(`${coin}${xPubKey}`));
 }
 
+export const ENVELOPE_IDENTITY_PATH = "m/2'/1";
+
+export function envelopeIdentityFromMnemonic(mnemonic: string): {
+  privKeyHex: string;
+  pubKeyHex: string;
+} {
+  const trimmed = mnemonic.trim();
+  if (!isValidMnemonic(trimmed)) {
+    throw new Error('Invalid mnemonic phrase');
+  }
+  const seed = mnemonicToSeedSync(trimmed);
+  const master = HDKey.fromMasterSeed(seed);
+  const key = master.derive(ENVELOPE_IDENTITY_PATH);
+  if (!key.privateKey || !key.publicKey) {
+    throw new Error('Cannot derive envelope identity key');
+  }
+  return {
+    privKeyHex: bytesToHex(key.privateKey),
+    pubKeyHex: bytesToHex(key.publicKey)
+  };
+}
+
 export function createCredentials(opts: {
   coin: SupportedCoin;
   mnemonic?: string;
@@ -49,12 +72,13 @@ export function createCredentials(opts: {
 
   const seed = mnemonicToSeedSync(mnemonic);
   const master = HDKey.fromMasterSeed(seed);
+  const isMultisig = (opts.isMultisig ?? false) || (opts.usePurpose48 ?? false);
   const accountPath = getRootPath({
     coin: opts.coin,
     account: opts.account ?? 0,
     usePurpose48: opts.usePurpose48,
     isMultisig: opts.isMultisig,
-    coinType: opts.coinType
+    coinType: opts.coinType ?? defaultWalletCoinType(opts.coin, isMultisig)
   });
 
   const account = master.derive(accountPath);
@@ -86,8 +110,18 @@ export function createCredentials(opts: {
   };
 }
 
+const TESTNET_VERSIONS = { private: 0x04358394, public: 0x043587cf };
+
+function parseExtendedKey(xKey: string): HDKey {
+  try {
+    return HDKey.fromExtendedKey(xKey);
+  } catch {
+    return HDKey.fromExtendedKey(xKey, TESTNET_VERSIONS);
+  }
+}
+
 export function deriveKeyAt(xKey: string, isChange: boolean, index: number): HDKey {
-  const hd = HDKey.fromExtendedKey(xKey);
+  const hd = parseExtendedKey(xKey);
   return hd.deriveChild(isChange ? 1 : 0).deriveChild(index);
 }
 

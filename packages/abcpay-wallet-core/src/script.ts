@@ -1,4 +1,4 @@
-import { concatBytes, compactSize, hexToBytes, u8 } from './bytes';
+import { bytesToHex, concatBytes, compactSize, hexToBytes, u8 } from './bytes';
 import { hash160 } from './hash';
 
 export const OP = {
@@ -84,4 +84,56 @@ export function publicKeysToBytes(publicKeysHex: string[]): Uint8Array[] {
 
 export function redeemScriptHash(redeemScript: Uint8Array): Uint8Array {
   return hash160(redeemScript);
+}
+
+export function parseMultisigRedeemScript(redeemScript: Uint8Array): {
+  m: number;
+  n: number;
+  publicKeysHex: string[];
+} {
+  const chunks: Array<{ op: number; data?: Uint8Array }> = [];
+  let offset = 0;
+  while (offset < redeemScript.length) {
+    const op = redeemScript[offset++]!;
+    if (op > 0 && op < OP.PUSHDATA1) {
+      if (offset + op > redeemScript.length) throw new Error('Invalid redeem script push');
+      chunks.push({ op, data: redeemScript.slice(offset, offset + op) });
+      offset += op;
+    } else if (op === OP.PUSHDATA1) {
+      if (offset >= redeemScript.length) throw new Error('Invalid redeem script push');
+      const len = redeemScript[offset++]!;
+      if (offset + len > redeemScript.length) throw new Error('Invalid redeem script push');
+      chunks.push({ op, data: redeemScript.slice(offset, offset + len) });
+      offset += len;
+    } else if (op === OP.PUSHDATA2) {
+      if (offset + 2 > redeemScript.length) throw new Error('Invalid redeem script push');
+      const len = redeemScript[offset]! | (redeemScript[offset + 1]! << 8);
+      offset += 2;
+      if (offset + len > redeemScript.length) throw new Error('Invalid redeem script push');
+      chunks.push({ op, data: redeemScript.slice(offset, offset + len) });
+      offset += len;
+    } else {
+      chunks.push({ op });
+    }
+  }
+  if (chunks.length < 4) throw new Error('Invalid multisig redeem script');
+  const first = chunks[0]!;
+  const last = chunks[chunks.length - 1]!;
+  const secondLast = chunks[chunks.length - 2]!;
+  if (first.data !== undefined || first.op < 0x51 || first.op > 0x60) {
+    throw new Error('Invalid multisig redeem script m');
+  }
+  if (last.op !== OP.CHECKMULTISIG) throw new Error('Missing OP_CHECKMULTISIG');
+  if (secondLast.data !== undefined || secondLast.op < 0x51 || secondLast.op > 0x60) {
+    throw new Error('Invalid multisig redeem script n');
+  }
+  const m = first.op - 0x50;
+  const n = secondLast.op - 0x50;
+  const pubkeyChunks = chunks.slice(1, chunks.length - 2);
+  if (pubkeyChunks.length !== n) throw new Error('Multisig redeem script n does not match pubkeys');
+  const publicKeysHex = pubkeyChunks.map(chunk => {
+    if (!chunk.data) throw new Error('Invalid multisig redeem script pubkey');
+    return bytesToHex(chunk.data);
+  });
+  return { m, n, publicKeysHex };
 }

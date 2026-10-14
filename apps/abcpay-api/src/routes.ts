@@ -1,54 +1,104 @@
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
+import { streamSSE } from 'hono/streaming';
+import { z } from 'zod';
 import {
   createWalletRequestSchema,
   joinWalletRequestSchema,
-  createTxProposalRequestSchema
+  createTxProposalRequestSchema,
+  ENVELOPE_NOTIFICATION_PATH,
+  NOTIFICATION_PATH,
+  type NotificationEvent
 } from '@bcpros/abcpay-models';
-import { chainFromCoin, getFeeEstimate } from '@bcpros/abcpay-wallet-core';
+import { getFeeEstimate, chainFromCoin } from '@bcpros/abcpay-wallet-core';
 import { walletService } from './services/wallet.service';
-import { txProposalService } from './services/tx-proposal.service';
-import { getFiatRate } from './services/fiat.service';
-import { copayerAuth } from './auth';
+import { COPAYER_NOT_IN_WALLET, txProposalService } from './services/tx-proposal.service';
+import { psbtService } from './services/psbt.service';
+import { envelopeService, EnvelopeError } from './services/envelope.service';
+import { addressService } from './services/address.service';
+import { fiatService } from './services/fiat.service';
+import { notificationService } from './services/notification.service';
+import { chainWatcher } from './services/chain-watcher.service';
+import { authMiddleware } from './middleware/auth';
 import { config } from './config';
 
+const SSE_HEARTBEAT_MS = 20000;
+
 export function createApp() {
-  const app = new Hono().basePath(config.basePath);
+  const app = new Hono<{ Variables: { copayerId: string; walletId: string } }>();
 
   app.use('*', cors());
-  app.use('*', copayerAuth);
+  app.use('*', authMiddleware);
+
+  const proposalError = (c: Context, err: unknown) => {
+    if ((err as Error).message === COPAYER_NOT_IN_WALLET) {
+      return c.json({ code: 'FORBIDDEN', message: (err as Error).message }, 403);
+    }
+    return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
+  };
 
   app.get('/health', c => c.json({ status: 'ok', version: '0.2.0', coins: ['xec', 'doge'] }));
 
-  app.post('/v1/wallets/', async c => {
+  app.get('/v5/node-info', c =>
+    c.json(
+      {
+        name: 'cws',
+        version: '0.3.0',
+        chain: ['XEC', 'DOGE'],
+        features: {
+          notifications: true,
+          psbt: true,
+          envelopes: true,
+          payjoin: 'single-sig',
+          paidEnvelopes: false
+        },
+        limits: {
+          maxEnvelopeBytes: 16384,
+          maxPsbtEnvelopeBytes: 65536,
+          envelopeTtlSeconds: 604800,
+          envelopesPerHour: 60,
+          maxPendingPerIdentity: 200,
+          maxPendingTotal: 10000
+        }
+      },
+      200,
+      { 'Cache-Control': 'public, max-age=300' }
+    )
+  );
+
+  const handleCreateWallet = async (c: { req: { json: () => Promise<unknown> }; json: (body: unknown, status?: number) => Response }) => {
     try {
       const body = createWalletRequestSchema.parse(await c.req.json());
-      const wallet = await walletService.createWallet(body);
-      return c.json(wallet, 201);
+      const result = await walletService.createWallet(body);
+      return c.json({ walletId: result.walletId }, 201);
     } catch (err) {
       return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
     }
-  });
+  };
 
-  app.post('/v2/wallets/', async c => {
-    try {
-      const body = createWalletRequestSchema.parse(await c.req.json());
-      const wallet = await walletService.createWallet(body);
-      return c.json(wallet, 201);
-    } catch (err) {
-      return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
-    }
-  });
+  app.post('/v1/wallets/', handleCreateWallet);
+  app.post('/v2/wallets/', handleCreateWallet);
 
-  app.post('/v1/wallets/:id/copayers/', async c => {
+  const handleJoinWallet = async (c: { req: { param: (k: string) => string; json: () => Promise<unknown> }; json: (body: unknown, status?: number) => Response }) => {
     try {
       const walletId = c.req.param('id');
-      const body = joinWalletRequestSchema.parse({ ...(await c.req.json()), walletId });
-      const wallet = await walletService.joinWallet(body);
-      return c.json(wallet);
+      const raw = await c.req.json();
+      const body = joinWalletRequestSchema.parse({ ...(raw as object), walletId });
+      const result = await walletService.joinWallet(walletId, body);
+      return c.json(result);
     } catch (err) {
       return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
     }
+  };
+
+  app.post('/v1/wallets/:id/copayers/', handleJoinWallet);
+  app.post('/v2/wallets/:id/copayers', handleJoinWallet);
+  app.post('/v2/wallets/:id/copayers/', handleJoinWallet);
+
+  app.get('/v1/wallets/:id/info', async c => {
+    const wallet = await walletService.getWallet(c.req.param('id'));
+    if (!wallet) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+    return c.json({ id: wallet.id, m: wallet.m, n: wallet.n, coin: wallet.coin, status: wallet.status });
   });
 
   app.get('/v1/wallets/:id/join-info/', async c => {
@@ -57,7 +107,6 @@ export function createApp() {
     return c.json(info);
   });
 
-  /** Public restore helper: map copayer id(s) → wallet metadata from migrated DB. */
   app.get('/v1/copayers/:copayerId/wallets/', async c => {
     const wallets = await walletService.findWalletsByCopayerId(c.req.param('copayerId'));
     return c.json(wallets);
@@ -82,22 +131,23 @@ export function createApp() {
     }
   });
 
-  const getWalletHandler = async (c: Context) => {
+  const handleGetWallet = async (c: { req: { header: (k: string) => string | undefined }; json: (body: unknown, status?: number) => Response }) => {
     const walletId = c.req.header('x-wallet-id');
     if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
-    const wallet = await walletService.getWallet(walletId);
-    if (!wallet) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
-    return c.json(wallet);
+    const status = await walletService.getWalletStatus(walletId);
+    if (!status) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+    return c.json(status);
   };
 
-  app.get('/v1/wallets/', getWalletHandler);
-  app.get('/v2/wallets/', getWalletHandler);
-  app.get('/v3/wallets/', getWalletHandler);
+  app.get('/v1/wallets/', handleGetWallet);
+  app.get('/v2/wallets/', handleGetWallet);
+  app.get('/v3/wallets/', handleGetWallet);
 
   app.post('/v3/addresses/', async c => {
     try {
       const walletId = c.req.header('x-wallet-id');
       if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+
       const body = await c.req.json().catch(() => ({}));
       const isChange = Boolean(body.isChange);
       const addr =
@@ -110,7 +160,28 @@ export function createApp() {
               isChange
             )
           : await walletService.createAddress(walletId, isChange);
-      return c.json(walletService.toAddressResponse(addr));
+      void chainWatcher.addAddress(walletId, addr.address);
+      return c.json(walletService.toAddressResponse(addr), 201);
+    } catch (err) {
+      return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
+    }
+  });
+
+  app.post('/v4/addresses/', async c => {
+    try {
+      const walletId = c.req.header('x-wallet-id');
+      if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+
+      const body = await c.req.json().catch(() => ({}));
+      const addr = await walletService.createAddress(walletId, Boolean(body.isChange));
+      void chainWatcher.addAddress(walletId, addr.address);
+      return c.json(
+        walletService.toAddressResponse(
+          addr,
+          addr as { redeemScript?: string; scriptPubKey?: string }
+        ),
+        201
+      );
     } catch (err) {
       return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
     }
@@ -119,6 +190,14 @@ export function createApp() {
   app.get('/v1/addresses/', async c => {
     const walletId = c.req.header('x-wallet-id');
     if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+
+    const url = new URL(c.req.url);
+    const limit = url.searchParams.get('limit');
+    if (limit) {
+      const addrs = await addressService.getMainAddresses(walletId, parseInt(limit));
+      return c.json(addrs);
+    }
+
     const list = await walletService.getWalletAddresses(walletId);
     return c.json(list.map(a => walletService.toAddressResponse(a)));
   });
@@ -132,6 +211,16 @@ export function createApp() {
     } catch (err) {
       return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
     }
+  });
+
+  app.get('/v4/addresses/', async c => {
+    const walletId = c.req.header('x-wallet-id');
+    if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+
+    const url = new URL(c.req.url);
+    const limit = url.searchParams.get('limit');
+    const addrs = await addressService.getMainAddresses(walletId, limit ? parseInt(limit) : undefined);
+    return c.json(addrs);
   });
 
   app.get('/v1/balance/', async c => {
@@ -152,18 +241,92 @@ export function createApp() {
     return c.json(await walletService.getHistory(walletId));
   });
 
+  app.get(NOTIFICATION_PATH, c => {
+    const walletId = c.req.header('x-wallet-id');
+    if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);
+
+    return streamSSE(c, async stream => {
+      const queue: NotificationEvent[] = [];
+      let wake: (() => void) | undefined;
+      const wakeUp = () => {
+        const resolve = wake;
+        wake = undefined;
+        resolve?.();
+      };
+
+      const unsubscribe = notificationService.subscribe(walletId, event => {
+        queue.push(event);
+        wakeUp();
+      });
+      stream.onAbort(() => {
+        unsubscribe();
+        wakeUp();
+        void chainWatcher.unwatchWallet(walletId);
+      });
+
+      try {
+        const watch = await chainWatcher.watchWallet(walletId).catch(err => {
+          console.warn(`[cws] chain watch failed for ${walletId}: ${(err as Error).message}`);
+          return { watched: 0, chain: undefined };
+        });
+
+        if (stream.aborted || stream.closed) {
+          await chainWatcher.unwatchWallet(walletId);
+          return;
+        }
+
+        await stream.writeSSE({
+          event: 'ready',
+          data: JSON.stringify({ walletId, at: Date.now(), watching: watch.watched, chain: watch.chain })
+        });
+
+        while (!stream.aborted && !stream.closed) {
+          if (queue.length === 0) {
+            let heartbeat: ReturnType<typeof setTimeout> | undefined;
+            await Promise.race([
+              new Promise<void>(resolve => {
+                wake = resolve;
+              }),
+              new Promise<void>(resolve => {
+                heartbeat = setTimeout(resolve, SSE_HEARTBEAT_MS);
+                heartbeat.unref?.();
+              })
+            ]);
+            wake = undefined;
+            if (heartbeat) clearTimeout(heartbeat);
+          }
+
+          if (stream.aborted || stream.closed) break;
+
+          if (queue.length === 0) {
+            await stream.write(`:heartbeat ${Date.now()}\n\n`);
+            continue;
+          }
+
+          const event = queue.shift()!;
+          await stream.writeSSE({ event: event.type, data: JSON.stringify(event) });
+        }
+      } catch {
+        // Client disconnected mid-write.
+      } finally {
+        unsubscribe();
+      }
+    });
+  });
+
   app.post('/v3/txproposals/', async c => {
     try {
       const walletId = c.req.header('x-wallet-id');
-      const copayerId = c.req.header('x-identity') ?? c.req.header('x-copayer-id');
+      const copayerId = c.req.header('x-copayer-id') ?? c.req.header('x-identity');
       if (!walletId || !copayerId) {
         return c.json({ code: 'BAD_REQUEST', message: 'Missing wallet or copayer id' }, 400);
       }
+
       const body = createTxProposalRequestSchema.parse(await c.req.json());
       const proposal = await txProposalService.createProposal(walletId, copayerId, body);
       return c.json(proposal, 201);
     } catch (err) {
-      return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
+      return proposalError(c, err);
     }
   });
 
@@ -176,13 +339,18 @@ export function createApp() {
   app.get('/v1/txproposals/:id/', async c => {
     const proposal = await txProposalService.getProposal(c.req.param('id'));
     if (!proposal) return c.json({ code: 'NOT_FOUND', message: 'Proposal not found' }, 404);
+    const authWalletId = c.get('walletId') as string | undefined;
+    if (authWalletId && proposal.walletId !== authWalletId) {
+      return c.json({ code: 'FORBIDDEN', message: 'Proposal belongs to a different wallet' }, 403);
+    }
     return c.json(proposal);
   });
 
   app.post('/v1/txproposals/:id/signatures/', async c => {
     try {
-      const copayerId = c.req.header('x-identity') ?? c.req.header('x-copayer-id');
+      const copayerId = c.req.header('x-copayer-id') ?? c.req.header('x-identity');
       if (!copayerId) return c.json({ code: 'BAD_REQUEST', message: 'Missing copayer id' }, 400);
+
       const body = await c.req.json();
       const signatures: string[] = Array.isArray(body.signatures)
         ? body.signatures
@@ -192,29 +360,33 @@ export function createApp() {
       const proposal = await txProposalService.signProposal(c.req.param('id'), copayerId, signatures);
       return c.json(proposal);
     } catch (err) {
-      return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
+      return proposalError(c, err);
     }
   });
 
   app.post('/v1/txproposals/:id/rejections/', async c => {
     try {
-      const copayerId = c.req.header('x-identity') ?? c.req.header('x-copayer-id');
+      const copayerId = c.req.header('x-copayer-id') ?? c.req.header('x-identity');
       if (!copayerId) return c.json({ code: 'BAD_REQUEST', message: 'Missing copayer id' }, 400);
+
       const body = await c.req.json().catch(() => ({}));
       const proposal = await txProposalService.rejectProposal(c.req.param('id'), copayerId, body.reason);
       return c.json(proposal);
     } catch (err) {
-      return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
+      return proposalError(c, err);
     }
   });
 
   app.post('/v1/txproposals/:id/broadcast/', async c => {
     try {
+      const copayerId = c.req.header('x-copayer-id') ?? c.req.header('x-identity');
+      if (!copayerId) return c.json({ code: 'BAD_REQUEST', message: 'Missing copayer id' }, 400);
+
       const body = await c.req.json();
-      const proposal = await txProposalService.broadcastProposal(c.req.param('id'), body.raw);
+      const proposal = await txProposalService.broadcastProposal(c.req.param('id'), copayerId, body.raw);
       return c.json(proposal);
     } catch (err) {
-      return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
+      return proposalError(c, err);
     }
   });
 
@@ -227,7 +399,269 @@ export function createApp() {
     }
   });
 
-  app.get('/v1/feelevels/', async c => {
+  const v5Identity = (c: Context) => c.req.header('x-identity') ?? '';
+
+  const envelopeError = (c: Context, err: unknown) => {
+    if (err instanceof EnvelopeError) {
+      return c.json(
+        { code: err.status === 413 ? 'ENVELOPE_TOO_LARGE' : 'BAD_REQUEST', message: err.message },
+        err.status as 400
+      );
+    }
+    return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
+  };
+
+  const signBodySchema = z.object({
+    signatures: z
+      .array(
+        z.object({
+          inputIndex: z.number().int().min(0),
+          pubKeyHex: z.string().min(66).max(130),
+          signatureHex: z.string().min(8)
+        })
+      )
+      .min(1)
+  });
+
+  app.post('/v5/psbt/', async c => {
+    try {
+      const body = createTxProposalRequestSchema.parse(await c.req.json());
+      const proposal = await txProposalService.createProposal(c.get('walletId'), c.get('copayerId'), body);
+      const stored = await psbtService.storeForProposal(proposal as never);
+      return c.json({ ...proposal, psbt: stored.psbt, psbtSha256: stored.psbtSha256 }, 201);
+    } catch (err) {
+      return proposalError(c, err);
+    }
+  });
+
+  app.get('/v5/psbt/:id', async c => {
+    try {
+      const proposal = await txProposalService.getProposal(c.req.param('id'));
+      if (!proposal) {
+        return c.json({ code: 'NOT_FOUND', message: 'Unknown proposal' }, 404);
+      }
+      if (c.get('walletId') && proposal.walletId !== c.get('walletId')) {
+        return c.json({ code: 'FORBIDDEN', message: 'Proposal belongs to another wallet' }, 403);
+      }
+      const stored = await psbtService.loadStored(c.req.param('id'));
+      return c.json({
+        ...proposal,
+        psbt: stored?.psbt ?? null,
+        psbtSha256: stored?.psbtSha256 ?? null
+      });
+    } catch (err) {
+      return proposalError(c, err);
+    }
+  });
+
+  app.post('/v5/psbt/:id/sign', async c => {
+    try {
+      const body = signBodySchema.parse(await c.req.json());
+      const result = await psbtService.attachCopayerSignatures(
+        c.req.param('id'),
+        c.get('copayerId'),
+        body.signatures
+      );
+      return c.json(result);
+    } catch (err) {
+      return proposalError(c, err);
+    }
+  });
+
+  app.post('/v5/psbt/:id/finalize', async c => {
+    try {
+      const proposal = await txProposalService.getProposal(c.req.param('id'));
+      if (!proposal) {
+        return c.json({ code: 'NOT_FOUND', message: 'Unknown proposal' }, 404);
+      }
+      if (c.get('walletId') && proposal.walletId !== c.get('walletId')) {
+        return c.json({ code: 'FORBIDDEN', message: 'Proposal belongs to another wallet' }, 403);
+      }
+      return c.json(await psbtService.finalize(c.req.param('id'), proposal.coin as 'xec' | 'doge'));
+    } catch (err) {
+      return proposalError(c, err);
+    }
+  });
+
+  app.post('/v5/psbt/:id/relay', async c => {
+    try {
+      const proposal = await txProposalService.getProposal(c.req.param('id'));
+      if (!proposal) {
+        return c.json({ code: 'NOT_FOUND', message: 'Unknown proposal' }, 404);
+      }
+      if (c.get('walletId') && proposal.walletId !== c.get('walletId')) {
+        return c.json({ code: 'FORBIDDEN', message: 'Proposal belongs to another wallet' }, 403);
+      }
+      const body = await c.req.json().catch(() => ({}));
+      const raw =
+        body.raw ??
+        (await psbtService.finalize(c.req.param('id'), proposal.coin as 'xec' | 'doge')).raw;
+      const broadcasted = await txProposalService.broadcastProposal(
+        c.req.param('id'),
+        c.get('copayerId'),
+        raw
+      );
+      return c.json(broadcasted);
+    } catch (err) {
+      return proposalError(c, err);
+    }
+  });
+
+  const identityBodySchema = z.object({
+    identityKey: z.string().length(66),
+    requestPubKey: z.string().min(66).max(130),
+    encryptionPubKey: z.string().min(66).max(130),
+    proofSignature: z.string().min(128).max(200),
+    label: z.string().max(100).optional()
+  });
+
+  app.post('/v5/identities/', async c => {
+    try {
+      const body = identityBodySchema.parse(await c.req.json());
+      const registered = await envelopeService.registerIdentity({
+        callerIdentity: v5Identity(c),
+        ...body
+      });
+      return c.json(
+        {
+          identityKey: registered.identityKey,
+          requestPubKey: registered.requestPubKey,
+          encryptionPubKey: registered.encryptionPubKey
+        },
+        201
+      );
+    } catch (err) {
+      return envelopeError(c, err);
+    }
+  });
+
+  app.get('/v5/identities/:identity', async c => {
+    const found = await envelopeService.getIdentity(c.req.param('identity'));
+    if (!found) {
+      return c.json({ code: 'NOT_FOUND', message: 'Unknown identity' }, 404);
+    }
+    return c.json({
+      requestPubKey: found.requestPubKey,
+      encryptionPubKey: found.encryptionPubKey ?? null,
+      walletIds: found.walletId ? [found.walletId] : []
+    });
+  });
+
+  app.post('/v5/envelopes/', async c => {
+    try {
+      const caller = await envelopeService.resolveIdentityKey(v5Identity(c));
+      if (!caller) {
+        return c.json({ code: 'NOT_AUTHORIZED', message: 'Unknown envelope identity' }, 401);
+      }
+      const envelope = await c.req.json();
+      const id = await envelopeService.storeEnvelope(envelope, caller.identityKey);
+      return c.json({ id }, 201);
+    } catch (err) {
+      return envelopeError(c, err);
+    }
+  });
+
+  app.get('/v5/envelopes/', async c => {
+    try {
+      const caller = await envelopeService.resolveIdentityKey(v5Identity(c));
+      if (!caller) {
+        return c.json({ code: 'NOT_AUTHORIZED', message: 'Unknown envelope identity' }, 401);
+      }
+      const since = c.req.query('since');
+      const items = await envelopeService.listPending(
+        caller.identityKey,
+        since ? Number(since) : undefined
+      );
+      return c.json({ envelopes: items });
+    } catch (err) {
+      return envelopeError(c, err);
+    }
+  });
+
+  app.post('/v5/envelopes/:id/ack', async c => {
+    try {
+      const caller = await envelopeService.resolveIdentityKey(v5Identity(c));
+      if (!caller) {
+        return c.json({ code: 'NOT_AUTHORIZED', message: 'Unknown envelope identity' }, 401);
+      }
+      const acked = await envelopeService.ack(caller.identityKey, c.req.param('id'));
+      if (!acked) {
+        return c.json({ code: 'NOT_FOUND', message: 'No such pending envelope' }, 404);
+      }
+      return c.json({ ok: true });
+    } catch (err) {
+      return envelopeError(c, err);
+    }
+  });
+
+  app.get(ENVELOPE_NOTIFICATION_PATH, async c => {
+    const caller = await envelopeService.resolveIdentityKey(v5Identity(c));
+    if (!caller) {
+      return c.json({ code: 'NOT_AUTHORIZED', message: 'Unknown envelope identity' }, 401);
+    }
+
+    return streamSSE(c, async stream => {
+      const queue: Array<{ event: string; data: string }> = [];
+      let wake: (() => void) | undefined;
+      const wakeUp = () => {
+        const resolve = wake;
+        wake = undefined;
+        resolve?.();
+      };
+
+      const unsubscribe = notificationService.subscribeIdentity(caller.identityKey, event => {
+        queue.push({
+          event: 'envelope.received',
+          data: JSON.stringify({ id: event.envelopeId, type: event.envelopeType, at: event.at })
+        });
+        wakeUp();
+      });
+      stream.onAbort(() => {
+        unsubscribe();
+        wakeUp();
+      });
+
+      try {
+        await stream.writeSSE({
+          event: 'ready',
+          data: JSON.stringify({ identity: caller.identityKey, at: Date.now() })
+        });
+
+        while (!stream.aborted && !stream.closed) {
+          if (queue.length === 0) {
+            let heartbeat: ReturnType<typeof setTimeout> | undefined;
+            await Promise.race([
+              new Promise<void>(resolve => {
+                wake = resolve;
+              }),
+              new Promise<void>(resolve => {
+                heartbeat = setTimeout(resolve, SSE_HEARTBEAT_MS);
+                heartbeat.unref?.();
+              })
+            ]);
+            wake = undefined;
+            if (heartbeat) clearTimeout(heartbeat);
+          }
+
+          if (stream.aborted || stream.closed) break;
+
+          if (queue.length === 0) {
+            await stream.write(`:heartbeat ${Date.now()}\n\n`);
+            continue;
+          }
+
+          const item = queue.shift()!;
+          await stream.writeSSE(item);
+        }
+      } catch {
+        // Client disconnected mid-write.
+      } finally {
+        unsubscribe();
+      }
+    });
+  });
+
+  const handleFeeLevels = async (c: { req: { query: (k: string) => string | undefined }; json: (body: unknown) => Response }) => {
     const coin = (c.req.query('coin') ?? 'xec') as 'xec' | 'doge';
     const feePerKb = await getFeeEstimate(chainFromCoin(coin));
     return c.json([
@@ -237,11 +671,20 @@ export function createApp() {
       { level: 'economy', feePerKb: Math.round(feePerKb * 0.75), nbBlocks: 6 },
       { level: 'superEconomy', feePerKb: Math.round(feePerKb * 0.5), nbBlocks: 12 }
     ]);
-  });
+  };
+
+  app.get('/v1/feelevels/', handleFeeLevels);
+  app.get('/v2/feelevels/', handleFeeLevels);
 
   app.get('/v3/fiatrates/:code/', async c => {
-    return c.json(await getFiatRate(c.req.param('code')));
+    const code = c.req.param('code');
+    const coin = (c.req.query('coin') ?? code) as 'xec' | 'doge';
+    const rate = await fiatService.getRate(coin, 'usd');
+    return c.json(rate);
   });
 
-  return app;
+  const root = new Hono();
+  root.route(config.basePath, app);
+  root.route(config.legacyBasePath, app);
+  return root;
 }

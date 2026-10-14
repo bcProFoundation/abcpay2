@@ -73,3 +73,42 @@ export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   }
   return true;
 }
+
+export function varSlice(data: Uint8Array): Uint8Array {
+  return concatBytes(compactSize(data.length), data);
+}
+
+export function readCompactSize(
+  bytes: Uint8Array,
+  offset: number
+): { value: number; size: number } {
+  if (offset < 0 || offset >= bytes.length) {
+    throw new Error('Read past end of buffer');
+  }
+  const first = bytes[offset]!;
+  if (first < 0xfd) return { value: first, size: 1 };
+  if (first === 0xfd) {
+    if (offset + 3 > bytes.length) throw new Error('Read past end of buffer');
+    return { value: bytes[offset + 1]! | (bytes[offset + 2]! << 8), size: 3 };
+  }
+  if (first === 0xfe) {
+    if (offset + 5 > bytes.length) throw new Error('Read past end of buffer');
+    const view = new DataView(bytes.buffer, bytes.byteOffset + offset + 1, 4);
+    return { value: view.getUint32(0, true), size: 5 };
+  }
+  if (offset + 9 > bytes.length) throw new Error('Read past end of buffer');
+  const view = new DataView(bytes.buffer, bytes.byteOffset + offset + 1, 8);
+  const value = view.getBigUint64(0, true);
+  if (value > 0xffffffffn) throw new Error('CompactSize value too large');
+  return { value: Number(value), size: 9 };
+}
+
+export function readVarSlice(
+  bytes: Uint8Array,
+  offset: number
+): { value: Uint8Array; size: number } {
+  const { value: length, size } = readCompactSize(bytes, offset);
+  const start = offset + size;
+  if (start + length > bytes.length) throw new Error('Read past end of buffer');
+  return { value: bytes.slice(start, start + length), size: size + length };
+}
