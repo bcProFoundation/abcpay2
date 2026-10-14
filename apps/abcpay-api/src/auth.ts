@@ -13,6 +13,8 @@ const OPEN_PATHS = [
 
 function isOpen(path: string, method: string): boolean {
   if (method === 'GET' && path.includes('/join-info')) return true;
+  if (method === 'GET' && /\/v1\/copayers\/[^/]+\/wallets\/?$/.test(path)) return true;
+  if (method === 'POST' && /\/v1\/wallets\/recover\/?$/.test(path)) return true;
   if (method === 'POST' && /\/v[12]\/wallets\/?$/.test(path)) return true;
   if (method === 'POST' && /\/wallets\/[^/]+\/copayers\/?$/.test(path)) return true;
   return OPEN_PATHS.some(p => path.endsWith(p) || path.includes(`/fiatrates/`));

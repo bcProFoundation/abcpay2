@@ -8,10 +8,11 @@ export interface DerivationPathOptions {
   addressIndex: number;
   usePurpose48?: boolean;
   isMultisig?: boolean;
+  coinType?: number;
 }
 
 export function getDerivationPath(opts: DerivationPathOptions): string {
-  const coinType = COIN_CONFIGS[opts.coin].bip44CoinType;
+  const coinType = opts.coinType ?? COIN_CONFIGS[opts.coin].bip44CoinType;
   const purpose = opts.usePurpose48 || opts.isMultisig ? 48 : 44;
   const change = opts.isChange ? 1 : 0;
   return `m/${purpose}'/${coinType}'/${opts.account}'/${change}/${opts.addressIndex}`;
@@ -22,8 +23,9 @@ export function getRootPath(opts: {
   account?: number;
   usePurpose48?: boolean;
   isMultisig?: boolean;
+  coinType?: number;
 }): string {
-  const coinType = COIN_CONFIGS[opts.coin].bip44CoinType;
+  const coinType = opts.coinType ?? COIN_CONFIGS[opts.coin].bip44CoinType;
   const purpose = opts.usePurpose48 || opts.isMultisig ? 48 : 44;
   const account = opts.account ?? 0;
   return `m/${purpose}'/${coinType}'/${account}'`;

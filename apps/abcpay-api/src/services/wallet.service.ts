@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { CreateWalletRequest, JoinWalletRequest, SupportedCoin, TxHistoryItem } from '@bcpros/abcpay-models';
-import { isSupportedCoin } from '@bcpros/abcpay-models';
+import { defaultWalletCoinType, isSupportedCoin } from '@bcpros/abcpay-models';
 import {
   chainFromCoin,
   copayerIdFromXpub,
@@ -34,6 +34,7 @@ export class WalletService {
 
     const walletId = generateId();
     const chain = req.chain ?? chainFromCoin(req.coin);
+    const coinType = req.coinType ?? defaultWalletCoinType(req.coin, req.n > 1);
 
     const [wallet] = await db
       .insert(wallets)
@@ -46,6 +47,7 @@ export class WalletService {
         chain,
         network: req.network,
         addressType: req.n > 1 ? 'P2SH' : 'P2PKH',
+        coinType,
         status: 'pending',
         pubKey: req.pubKey,
         publicKeyRing: [],
@@ -116,6 +118,7 @@ export class WalletService {
       id: wallet.walletId,
       name: wallet.name,
       coin: wallet.coin,
+      coinType: wallet.coinType ?? defaultWalletCoinType(wallet.coin as SupportedCoin, wallet.n > 1),
       m: wallet.m,
       n: wallet.n,
       status: wallet.status,
@@ -133,6 +136,69 @@ export class WalletService {
   async getCopayer(copayerId: string) {
     const [row] = await db.select().from(copayers).where(eq(copayers.copayerId, copayerId)).limit(1);
     return row ?? null;
+  }
+
+  /** Resolve wallet(s) for a copayer using the migrated v1/v2 lookup table. */
+  async findWalletsByCopayerId(copayerId: string) {
+    const lookups = await db
+      .select()
+      .from(copayerLookup)
+      .where(eq(copayerLookup.copayerId, copayerId));
+
+    const results = [];
+    for (const lookup of lookups) {
+      const info = await this.getJoinInfo(lookup.walletId);
+      if (info) {
+        results.push({ ...info, copayerId: lookup.copayerId });
+      }
+    }
+
+    // Fallback: copayer row present but lookup row missing (partial migrations)
+    if (results.length === 0) {
+      const copayer = await this.getCopayer(copayerId);
+      if (copayer) {
+        const info = await this.getJoinInfo(copayer.walletId);
+        if (info) results.push({ ...info, copayerId });
+      }
+    }
+
+    return results;
+  }
+
+  async findWalletsByCopayerIds(copayerIds: string[]) {
+    const unique = [...new Set(copayerIds.filter(Boolean))];
+    const byWallet = new Map<string, Awaited<ReturnType<WalletService['findWalletsByCopayerId']>>[number]>();
+    for (const id of unique) {
+      for (const wallet of await this.findWalletsByCopayerId(id)) {
+        byWallet.set(wallet.id, wallet);
+      }
+    }
+    return [...byWallet.values()];
+  }
+
+  /** Prefer xpub match — works even if a client used an older copayerId hash. */
+  async findWalletsByXPubKeys(xPubKeys: string[]) {
+    const unique = [...new Set(xPubKeys.filter(Boolean))];
+    if (unique.length === 0) return [];
+
+    const rows = await db.select().from(copayers).where(inArray(copayers.xPubKey, unique));
+    const byWallet = new Map<string, Awaited<ReturnType<WalletService['findWalletsByCopayerId']>>[number]>();
+    for (const row of rows) {
+      const info = await this.getJoinInfo(row.walletId);
+      if (info) byWallet.set(info.id, { ...info, copayerId: row.copayerId });
+    }
+    return [...byWallet.values()];
+  }
+
+  async recoverWallets(opts: { copayerIds?: string[]; xPubKeys?: string[] }) {
+    const byWallet = new Map<string, Awaited<ReturnType<WalletService['findWalletsByCopayerId']>>[number]>();
+    for (const wallet of await this.findWalletsByCopayerIds(opts.copayerIds ?? [])) {
+      byWallet.set(wallet.id, wallet);
+    }
+    for (const wallet of await this.findWalletsByXPubKeys(opts.xPubKeys ?? [])) {
+      byWallet.set(wallet.id, wallet);
+    }
+    return [...byWallet.values()];
   }
 
   async createAddress(walletId: string, isChange: boolean) {
@@ -333,6 +399,7 @@ export class WalletService {
       version: '1.0.0',
       createdOn: wallet.createdAt.getTime(),
       coin: wallet.coin,
+      coinType: wallet.coinType ?? defaultWalletCoinType(wallet.coin as SupportedCoin, wallet.n > 1),
       chain: wallet.chain,
       network: wallet.network,
       addressType: wallet.addressType,

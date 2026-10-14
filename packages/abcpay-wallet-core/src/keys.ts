@@ -4,7 +4,7 @@ import { wordlist } from '@scure/bip39/wordlists/english';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import type { SupportedCoin } from '@bcpros/abcpay-models';
 import { bytesToHex, hexToBytes, utf8ToBytes } from './bytes';
-import { hash160Hex } from './hash';
+import { sha256Hex } from './hash';
 import { getRootPath } from './derivation';
 
 export interface WalletCredentials {
@@ -18,6 +18,7 @@ export interface WalletCredentials {
   copayerId: string;
   accountPath: string;
   coin: SupportedCoin;
+  coinType?: number;
 }
 
 export function generateWalletMnemonic(): string {
@@ -28,8 +29,9 @@ export function isValidMnemonic(mnemonic: string): boolean {
   return validateMnemonic(mnemonic.trim(), wordlist);
 }
 
+/** Bitcore Wallet Client / AbcPay v1: sha256(coin + xPubKey) hex. */
 export function copayerIdFromXpub(coin: SupportedCoin, xPubKey: string): string {
-  return hash160Hex(utf8ToBytes(`${coin}${xPubKey}`));
+  return sha256Hex(utf8ToBytes(`${coin}${xPubKey}`));
 }
 
 export function createCredentials(opts: {
@@ -38,6 +40,7 @@ export function createCredentials(opts: {
   account?: number;
   isMultisig?: boolean;
   usePurpose48?: boolean;
+  coinType?: number;
 }): WalletCredentials {
   const mnemonic = (opts.mnemonic ?? generateWalletMnemonic()).trim();
   if (!isValidMnemonic(mnemonic)) {
@@ -50,7 +53,8 @@ export function createCredentials(opts: {
     coin: opts.coin,
     account: opts.account ?? 0,
     usePurpose48: opts.usePurpose48,
-    isMultisig: opts.isMultisig
+    isMultisig: opts.isMultisig,
+    coinType: opts.coinType
   });
 
   const account = master.derive(accountPath);
@@ -65,6 +69,8 @@ export function createCredentials(opts: {
   }
 
   const xPubKey = account.publicExtendedKey;
+  const parsedCoinType = Number(accountPath.split('/')[2]?.replace(/'/g, ''));
+  const coinType = opts.coinType ?? (Number.isFinite(parsedCoinType) ? parsedCoinType : undefined);
   return {
     mnemonic,
     xPrivKey: account.privateExtendedKey,
@@ -75,7 +81,8 @@ export function createCredentials(opts: {
     walletPubKey: bytesToHex(walletKey.publicKey),
     copayerId: copayerIdFromXpub(opts.coin, xPubKey),
     accountPath,
-    coin: opts.coin
+    coin: opts.coin,
+    coinType
   };
 }
 

@@ -11,7 +11,7 @@ export interface AppConfig {
 
 export const config: AppConfig = {
   port: Number(process.env.PORT ?? 3232),
-  basePath: '/bws/api',
+  basePath: process.env.API_BASE_PATH ?? '/cws/api',
   databaseUrl: process.env.DATABASE_URL ?? 'postgresql://abcpay:abcpay@localhost:5432/abcpay',
   requireAuth: process.env.REQUIRE_AUTH !== '0',
   chronik: {

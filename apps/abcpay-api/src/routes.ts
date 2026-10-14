@@ -57,6 +57,31 @@ export function createApp() {
     return c.json(info);
   });
 
+  /** Public restore helper: map copayer id(s) → wallet metadata from migrated DB. */
+  app.get('/v1/copayers/:copayerId/wallets/', async c => {
+    const wallets = await walletService.findWalletsByCopayerId(c.req.param('copayerId'));
+    return c.json(wallets);
+  });
+
+  app.post('/v1/wallets/recover/', async c => {
+    try {
+      const body = await c.req.json();
+      const copayerIds: string[] = Array.isArray(body.copayerIds)
+        ? body.copayerIds.map(String)
+        : body.copayerId
+          ? [String(body.copayerId)]
+          : [];
+      const xPubKeys: string[] = Array.isArray(body.xPubKeys) ? body.xPubKeys.map(String) : [];
+      if (copayerIds.length === 0 && xPubKeys.length === 0) {
+        return c.json({ code: 'BAD_REQUEST', message: 'copayerIds or xPubKeys required' }, 400);
+      }
+      const wallets = await walletService.recoverWallets({ copayerIds, xPubKeys });
+      return c.json({ wallets });
+    } catch (err) {
+      return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
+    }
+  });
+
   const getWalletHandler = async (c: Context) => {
     const walletId = c.req.header('x-wallet-id');
     if (!walletId) return c.json({ code: 'NOT_FOUND', message: 'Wallet not found' }, 404);

@@ -27,7 +27,16 @@ describe('credentials', () => {
     expect(isValidMnemonic(MNEMONIC)).toBe(true);
     expect(a.xPubKey).toBe(b.xPubKey);
     expect(a.copayerId).toBe(copayerIdFromXpub('xec', a.xPubKey));
+    expect(a.copayerId).toHaveLength(64); // BWC sha256(coin+xpub) hex
     expect(a.requestPubKey).toHaveLength(66);
+  });
+
+  it('matches migrated AbcPay copayer ids (sha256 coin+xpub)', () => {
+    const xpub =
+      'xpub6D24pFy3APSYN93fV4EsyviphZXCCX4GxWTw3tykyJnyvmTTKsHpRK3tub4jBpZnU1U5QESmJJLn44VPc5st32CwecV9BVZrGfGgSdbKp13';
+    expect(copayerIdFromXpub('xec', xpub)).toBe(
+      'aa7d8688a57c254dfcc5f22a3269a3e12f2e5b7fb2b3552e8a87322d7674469d'
+    );
   });
 
   it('uses purpose 48 for multisig accounts', () => {

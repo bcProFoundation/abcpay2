@@ -12,7 +12,7 @@ import type {
 } from '@bcpros/abcpay-models';
 import { signRequest } from '@bcpros/abcpay-wallet-core';
 
-const BWS_URL = import.meta.env.VITE_BWS_URL ?? '/bws/api';
+const BWS_URL = import.meta.env.VITE_BWS_URL ?? import.meta.env.VITE_API_URL ?? '/cws/api';
 
 export interface AuthContext {
   walletId: string;
@@ -77,6 +77,17 @@ export const api = {
 
   getJoinInfo(walletId: string): Promise<JoinInfo> {
     return bwsFetch(`/v1/wallets/${walletId}/join-info/`);
+  },
+
+  /** Look up migrated wallets by derived copayer id / xpub — no wallet ID needed. */
+  recoverWallets(opts: {
+    copayerIds?: string[];
+    xPubKeys?: string[];
+  }): Promise<{ wallets: Array<JoinInfo & { copayerId: string }> }> {
+    return bwsFetch('/v1/wallets/recover/', {
+      method: 'POST',
+      body: JSON.stringify(opts)
+    });
   },
 
   getWallet(auth: AuthContext): Promise<WalletResponse> {
