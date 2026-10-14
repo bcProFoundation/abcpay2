@@ -32,6 +32,8 @@ export const copayers = pgTable('copayers', {
   requestPubKey: text('request_pub_key').notNull(),
   signature: text('signature'),
   customData: text('custom_data'),
+  envelopeIdentity: varchar('envelope_identity', { length: 128 }),
+  encryptionPubKey: text('encryption_pub_key'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 });
 
@@ -60,6 +62,9 @@ export const txProposals = pgTable('tx_proposals', {
   amount: bigint('amount', { mode: 'number' }).notNull(),
   fee: bigint('fee', { mode: 'number' }).notNull().default(0),
   feePerKb: integer('fee_per_kb').notNull(),
+  tokenId: varchar('token_id', { length: 128 }),
+  protocol: varchar('protocol', { length: 32 }),
+  tokenType: integer('token_type'),
   message: text('message'),
   changeAddress: jsonb('change_address'),
   inputs: jsonb('inputs').notNull().default([]),
@@ -68,6 +73,9 @@ export const txProposals = pgTable('tx_proposals', {
   txid: varchar('txid', { length: 128 }),
   signatures: jsonb('signatures').default({}),
   actions: jsonb('actions').default([]),
+  psbt: text('psbt'),
+  psbtSha256: varchar('psbt_sha256', { length: 128 }),
+  format: varchar('format', { length: 32 }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });
