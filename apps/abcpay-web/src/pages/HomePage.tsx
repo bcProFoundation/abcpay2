@@ -13,8 +13,6 @@ export function HomePage() {
     showBalance,
     setShowBalance,
     totalFiatBalance,
-    refreshBalances,
-    refreshing,
     tokenVisibility,
     tokensByAccount
   } = useWallets();
@@ -22,7 +20,7 @@ export function HomePage() {
   if (seedWallets.length === 0) {
     return (
       <div className="max-w-lg mx-auto">
-        <header className="flex items-center justify-between px-4 py-4 border-b border-white/10">
+        <header className="flex items-center px-4 py-4 border-b border-white/10">
           <AbcPayLogo />
         </header>
         <div className="px-4 py-12 text-center bg-[var(--abcpay-surface)] rounded-2xl m-4">
@@ -45,30 +43,8 @@ export function HomePage() {
 
   return (
     <div className="max-w-lg mx-auto">
-      <header className="flex items-center justify-between px-4 py-4 border-b border-white/10">
+      <header className="flex items-center px-4 py-4 border-b border-white/10">
         <AbcPayLogo />
-        <button
-          type="button"
-          onClick={() => void refreshBalances()}
-          disabled={refreshing}
-          className="flex items-center gap-1.5 py-1 pl-3 text-sm text-[var(--abcpay-accent)] hover:underline disabled:opacity-60"
-          aria-label={refreshing ? 'Refreshing balances' : 'Refresh balances'}
-        >
-          <svg
-            className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
-            />
-          </svg>
-          {refreshing ? 'Refreshing…' : 'Refresh'}
-        </button>
       </header>
 
       <div className="px-4 pt-2 pb-6">
