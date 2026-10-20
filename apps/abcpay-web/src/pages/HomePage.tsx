@@ -71,7 +71,7 @@ export function HomePage() {
         </button>
       </header>
 
-      <div className="px-4 py-6">
+      <div className="px-4 pt-2 pb-6">
         <div className="text-center mb-6">
           <p className="text-sm text-[var(--abcpay-muted)] mb-2">Total cash value</p>
           <div className="flex items-center justify-center gap-2">
