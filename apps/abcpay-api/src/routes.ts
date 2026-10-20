@@ -742,6 +742,33 @@ export function createApp() {
     return c.json(rate);
   });
 
+  // Same-origin Cashtab icon proxy (Brave blocks third-party icons.etokens.cash).
+  app.get('/v1/token-icons/:size/:tokenId{.+\\.png}', async c => {
+    const size = c.req.param('size');
+    const rawId = c.req.param('tokenId').replace(/\.png$/i, '');
+    if (!/^(32|64|128|256|512)$/.test(size) || !/^[a-f0-9]{64}$/i.test(rawId)) {
+      return c.text('Bad request', 400);
+    }
+    const upstream = `https://icons.etokens.cash/${size}/${rawId.toLowerCase()}.png`;
+    try {
+      const res = await fetch(upstream, {
+        headers: { Accept: 'image/png,image/*;q=0.8,*/*;q=0.5' }
+      });
+      if (!res.ok) return c.text('Icon unavailable', res.status as 404);
+      const bytes = await res.arrayBuffer();
+      return new Response(bytes, {
+        status: 200,
+        headers: {
+          'Content-Type': res.headers.get('content-type') || 'image/png',
+          'Cache-Control': 'public, max-age=86400',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    } catch {
+      return c.text('Icon unavailable', 502);
+    }
+  });
+
   const root = new Hono();
   root.route(config.basePath, app);
   root.route(config.legacyBasePath, app);

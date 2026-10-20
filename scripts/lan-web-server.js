@@ -23,6 +23,52 @@ const MIME = {
 };
 
 const apiUrl = new URL(API_ORIGIN);
+const TOKEN_ICONS_ORIGIN = 'https://icons.etokens.cash';
+const TOKEN_ICON_PATH = /^\/token-icons\/(32|64|128|256|512)\/([a-f0-9]{64})\.png$/i;
+
+function proxyTokenIcon(req, res, size, tokenId) {
+  const upstream = new URL(`${TOKEN_ICONS_ORIGIN}/${size}/${tokenId.toLowerCase()}.png`);
+  const lib = upstream.protocol === 'https:' ? https : http;
+  const proxyReq = lib.request(
+    {
+      hostname: upstream.hostname,
+      port: upstream.port || (upstream.protocol === 'https:' ? 443 : 80),
+      path: upstream.pathname,
+      method: 'GET',
+      headers: {
+        Accept: 'image/png,image/*;q=0.8,*/*;q=0.5',
+        'User-Agent': 'AbcPay-TokenIconProxy/1.0'
+      }
+    },
+    proxyRes => {
+      const status = proxyRes.statusCode || 502;
+      const headers = {
+        'Content-Type': proxyRes.headers['content-type'] || 'image/png',
+        'Cache-Control': 'public, max-age=86400',
+        'Access-Control-Allow-Origin': '*'
+      };
+      if (proxyRes.headers['content-length']) {
+        headers['Content-Length'] = proxyRes.headers['content-length'];
+      }
+      if (proxyRes.headers['etag']) headers['ETag'] = proxyRes.headers['etag'];
+      res.writeHead(status, headers);
+      proxyRes.pipe(res);
+    }
+  );
+  proxyReq.setTimeout(15000);
+  proxyReq.on('error', () => {
+    if (!res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'text/plain' });
+      res.end('Token icon unavailable');
+    } else {
+      res.destroy();
+    }
+  });
+  proxyReq.on('timeout', () => {
+    proxyReq.destroy();
+  });
+  proxyReq.end();
+}
 
 function proxy(req, res) {
   const isSse = /\/(?:cws|bws)\/api\/v[15]\/notifications\/?/.test(req.url || '');
@@ -68,6 +114,17 @@ function handleRequest(req, res) {
     res.writeHead(400, { 'Content-Type': 'text/plain' });
     res.end('Bad request');
     return;
+  }
+
+  // Same-origin Cashtab/eTokens icons — Brave Shields block third-party icon CDNs.
+  const iconMatch = requestPath.match(TOKEN_ICON_PATH);
+  if (iconMatch) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { 'Content-Type': 'text/plain' });
+      res.end('Method not allowed');
+      return;
+    }
+    return proxyTokenIcon(req, res, iconMatch[1], iconMatch[2]);
   }
 
   let filePath = path.join(DIST, requestPath);

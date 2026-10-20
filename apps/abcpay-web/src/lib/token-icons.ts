@@ -1,5 +1,9 @@
-/** Cashtab / eTokens icon CDN (same host Cashtab uses via VITE_TOKEN_ICONS_URL). */
-export const TOKEN_ICONS_BASE_URL = 'https://icons.etokens.cash';
+/**
+ * Token icons come from Cashtab's CDN (icons.etokens.cash) but are served
+ * same-origin via `/token-icons/...` (web proxy / Vite proxy). Brave Shields
+ * often block direct third-party fetches/images to that host on desktop.
+ */
+export const TOKEN_ICONS_CDN = 'https://icons.etokens.cash';
 export const TOKEN_ICONS_CACHE = 'abcpay-token-icons-v1';
 export const TOKEN_ICON_FALLBACK = '/currencies/eToken.svg';
 
@@ -8,9 +12,10 @@ export type TokenIconSize = 32 | 64 | 128 | 256 | 512;
 const memory = new Map<string, string>();
 const inflight = new Map<string, Promise<string>>();
 
+/** Same-origin display URL (proxied to Cashtab). */
 export function tokenIconUrl(tokenId: string, size: TokenIconSize = 64): string {
   const id = tokenId.trim().toLowerCase();
-  return `${TOKEN_ICONS_BASE_URL}/${size}/${id}.png`;
+  return `/token-icons/${size}/${id}.png`;
 }
 
 function cacheKey(tokenId: string, size: TokenIconSize): string {
@@ -20,14 +25,13 @@ function cacheKey(tokenId: string, size: TokenIconSize): string {
 async function responseToObjectUrl(response: Response): Promise<string> {
   const blob = await response.blob();
   if (blob.size === 0) throw new Error('empty token icon');
-  // Some browsers omit type on Cache API blobs; still treat PNG bytes as image.
   if (blob.type && !blob.type.startsWith('image/')) throw new Error('invalid token icon');
   return URL.createObjectURL(blob);
 }
 
 /**
- * Resolve a displayable token icon URL, preferring Cache API → network → fallback.
- * Successful fetches are stored in `abcpay-token-icons-v1` for later / offline use.
+ * Resolve a displayable token icon URL.
+ * Prefers Cache API blob → same-origin proxy URL (works under Brave Shields).
  */
 export async function loadTokenIcon(
   tokenId: string,
@@ -43,24 +47,25 @@ export async function loadTokenIcon(
   const pending = inflight.get(key);
   if (pending) return pending;
 
+  const localUrl = tokenIconUrl(id, size);
+
   const task = (async () => {
-    const url = tokenIconUrl(id, size);
     try {
       if (typeof caches === 'undefined') {
-        memory.set(key, url);
-        return url;
+        memory.set(key, localUrl);
+        return localUrl;
       }
       const cache = await caches.open(TOKEN_ICONS_CACHE);
-      const cached = await cache.match(url);
+      const cached = await cache.match(localUrl);
       if (cached) {
         const objectUrl = await responseToObjectUrl(cached);
         memory.set(key, objectUrl);
         return objectUrl;
       }
-      const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+      const res = await fetch(localUrl, { credentials: 'same-origin' });
       if (!res.ok) throw new Error(`icon ${res.status}`);
       try {
-        await cache.put(url, res.clone());
+        await cache.put(localUrl, res.clone());
       } catch {
         // Quota / private mode — still use the image this session.
       }
@@ -68,8 +73,10 @@ export async function loadTokenIcon(
       memory.set(key, objectUrl);
       return objectUrl;
     } catch {
-      memory.set(key, TOKEN_ICON_FALLBACK);
-      return TOKEN_ICON_FALLBACK;
+      // Fall back to the same-origin proxy URL so <img> can still try;
+      // TokenIcon.onError will swap to eToken.svg if that fails too.
+      memory.set(key, localUrl);
+      return localUrl;
     } finally {
       inflight.delete(key);
     }

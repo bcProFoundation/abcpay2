@@ -16,6 +16,12 @@ function isPublicPath(method: string, path: string): boolean {
   if (method === 'POST' && (path === '/v1/wallets/' || path === '/v2/wallets/')) return true;
   if (method === 'POST' && path.match(/^\/v[12]\/wallets\/[^/]+\/copayers\/?$/)) return true;
   if (method === 'GET' && path.startsWith('/v3/fiatrates/')) return true;
+  if (
+    method === 'GET' &&
+    path.match(/^\/v1\/token-icons\/(32|64|128|256|512)\/[a-f0-9]{64}\.png$/i)
+  ) {
+    return true;
+  }
   if (method === 'GET' && (path.startsWith('/v1/feelevels/') || path.startsWith('/v2/feelevels/'))) {
     return true;
   }
