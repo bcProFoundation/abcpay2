@@ -34,6 +34,8 @@ function headersFromAuth(auth: AuthContext): RequestHeaders {
   };
 }
 
+const API_TIMEOUT_MS = 45_000;
+
 async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
@@ -60,7 +62,29 @@ async function apiFetch<T>(
     reqHeaders['x-signature'] = signRequest(headers.requestPrivKey, method, path, JSON.stringify(body));
   }
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers: reqHeaders });
+  // Signed GETs are byte-identical between Refresh taps, so the HTTP cache
+  // (and any intermediary) must never answer for them — and a hung request
+  // must fail instead of blocking every later refresh forever.
+  const { signal: callerSignal, ...restOptions } = options;
+  let signal = callerSignal ?? undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  if (!signal) {
+    const controller = new AbortController();
+    timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+    signal = controller.signal;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...restOptions,
+      headers: reqHeaders,
+      signal,
+      cache: 'no-store'
+    });
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));

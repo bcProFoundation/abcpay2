@@ -181,6 +181,8 @@ interface WalletContextValue {
   /** @deprecated Use removeAccount */
   removeWallet: (id: string) => void;
   refreshBalances: () => Promise<void>;
+  /** True while a balance refresh is running (manual or automatic). */
+  refreshing: boolean;
   showBalance: boolean;
   setShowBalance: (show: boolean) => void;
   totalFiatBalance: string;
@@ -394,6 +396,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   walletsRef.current = wallets;
   const refreshInFlightRef = useRef(false);
   const refreshQueuedRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(WALLETS_KEY, JSON.stringify(wallets));
@@ -524,7 +527,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       network?: string;
     }
 
-    const results = await Promise.all(
+    await Promise.all(
       current.map(async (wallet): Promise<RefreshResult> => {
         const result: RefreshResult = {
           id: wallet.id,
@@ -589,29 +592,27 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        return result;
-      })
-    );
+        // Apply this Account as soon as it resolves so a slow Account
+        // (many addresses, dead indexer) never delays the others — and a
+        // manual Refresh produces visible updates Account by Account.
+        setWallets(prev =>
+          prev.map(current =>
+            current.id !== wallet.id
+              ? current
+              : {
+                  ...current,
+                  balance: result.balanceSuccess ? result.balance : current.balance,
+                  tokenCount: result.balanceSuccess ? result.tokenCount : current.tokenCount,
+                  fiatBalance: result.fiatBalance ?? current.fiatBalance,
+                  status: result.status,
+                  m: result.m,
+                  n: result.n,
+                  network: result.network ?? current.network
+                }
+          )
+        );
 
-    const byId = new Map(results.map(r => [r.id, r]));
-    // Merge into the LATEST wallet list: a slow, failed refresh must never
-    // overwrite a balance another refresh already fetched (previously the
-    // whole array was replaced from a stale closure, reverting a newly
-    // imported Wallet's balance to 0).
-    setWallets(prev =>
-      prev.map(wallet => {
-        const result = byId.get(wallet.id);
-        if (!result) return wallet;
-        return {
-          ...wallet,
-          balance: result.balanceSuccess ? result.balance : wallet.balance,
-          tokenCount: result.balanceSuccess ? result.tokenCount : wallet.tokenCount,
-          fiatBalance: result.fiatBalance ?? wallet.fiatBalance,
-          status: result.status,
-          m: result.m,
-          n: result.n,
-          network: result.network ?? wallet.network
-        };
+        return result;
       })
     );
 
@@ -632,6 +633,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       return;
     }
     refreshInFlightRef.current = true;
+    setRefreshing(true);
     try {
       do {
         refreshQueuedRef.current = false;
@@ -639,6 +641,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       } while (refreshQueuedRef.current);
     } finally {
       refreshInFlightRef.current = false;
+      setRefreshing(false);
     }
   }, [refreshBalancesOnce]);
 
@@ -685,6 +688,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         removeAccount: removeWallet,
         removeWallet,
         refreshBalances,
+        refreshing,
         showBalance,
         setShowBalance,
         totalFiatBalance,

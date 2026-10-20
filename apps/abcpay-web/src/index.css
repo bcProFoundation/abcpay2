@@ -25,4 +25,12 @@ body {
 
 #root {
   min-height: 100vh;
+  /* In a standalone PWA the status bar overlays the web view
+     (apple-mobile-web-app-status-bar-style: black-translucent), so the
+     first header must clear it instead of sitting under the clock. */
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }

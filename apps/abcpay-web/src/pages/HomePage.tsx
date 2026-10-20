@@ -2,11 +2,7 @@ import { Link } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import { AbcPayLogo, CoinIcon, EyeToggle } from '../components/ui';
 import { hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
-import {
-  useWallets,
-  accountDisplayTitle,
-  accountNetworkLabel
-} from '../context/WalletContext';
+import { useWallets } from '../context/WalletContext';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
 
 export function HomePage() {
@@ -18,6 +14,7 @@ export function HomePage() {
     setShowBalance,
     totalFiatBalance,
     refreshBalances,
+    refreshing,
     tokenVisibility,
     tokensByAccount
   } = useWallets();
@@ -51,10 +48,26 @@ export function HomePage() {
       <header className="flex items-center justify-between px-4 py-4 border-b border-white/10">
         <AbcPayLogo />
         <button
+          type="button"
           onClick={() => void refreshBalances()}
-          className="text-sm text-[var(--abcpay-accent)] hover:underline"
+          disabled={refreshing}
+          className="flex items-center gap-1.5 py-1 pl-3 text-sm text-[var(--abcpay-accent)] hover:underline disabled:opacity-60"
+          aria-label={refreshing ? 'Refreshing balances' : 'Refresh balances'}
         >
-          Refresh
+          <svg
+            className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
+            />
+          </svg>
+          {refreshing ? 'Refreshing…' : 'Refresh'}
         </button>
       </header>
 
@@ -118,23 +131,18 @@ export function HomePage() {
                     <Link
                       to={`/wallet/${entry.id}`}
                       onClick={() => setActiveAccount(entry.id)}
-                      className="block mb-2 hover:opacity-80"
+                      className="block hover:opacity-80"
                     >
-                      <span className="block text-sm font-medium font-mono truncate">
-                        Account {accountNetworkLabel(group.coin)}{' '}
-                        {accountDisplayTitle({ ...entry, accountPath: group.accountPath })}
-                      </span>
                       {(group.network !== 'livenet' || incomplete) && (
-                        <span className="block text-xs text-[var(--abcpay-muted)]">
+                        <p className="text-xs text-[var(--abcpay-muted)] mb-1">
                           {[
                             group.network !== 'livenet' ? group.network : null,
                             incomplete ? 'pending' : null
                           ]
                             .filter(Boolean)
                             .join(' · ')}
-                        </span>
+                        </p>
                       )}
-                    </Link>
                     <div className="space-y-1 pl-1">
                       <div className="flex items-center justify-between text-sm">
                         <span className="inline-flex items-center gap-1.5 text-[var(--abcpay-muted)]">
@@ -170,6 +178,7 @@ export function HomePage() {
                         </p>
                       )}
                     </div>
+                    </Link>
                   </div>
                 );
               })}
