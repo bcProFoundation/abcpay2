@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import { AbcPayLogo, CoinIcon, EyeToggle } from '../components/ui';
 import { hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
-import { useWallets } from '../context/WalletContext';
+import { useWallets, accountNetworkLabel } from '../context/WalletContext';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
 
 export function HomePage() {
@@ -133,6 +133,16 @@ export function HomePage() {
                       onClick={() => setActiveAccount(entry.id)}
                       className="block hover:opacity-80"
                     >
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <span className="text-sm font-medium font-mono truncate">
+                          {accountNetworkLabel(group.coin)} {group.accountPath}
+                        </span>
+                        {group.n > 1 && (
+                          <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300">
+                            {group.m}-of-{group.n}
+                          </span>
+                        )}
+                      </div>
                       {(group.network !== 'livenet' || incomplete) && (
                         <p className="text-xs text-[var(--abcpay-muted)] mb-1">
                           {[
