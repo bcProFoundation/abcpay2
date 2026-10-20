@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import type { TokenBalance } from '@bcpros/abcpay-models';
 import { validateAddress } from '@bcpros/abcpay-wallet-core';
+import { TokenIcon } from '../components/TokenIcon';
 import { createAndSendToken } from '../lib/tx';
 import { formatTokenAtoms, parseTokenAtoms, tokenLabel } from '../lib/token-format';
 import { api } from '../lib/api';
@@ -153,12 +154,17 @@ export function TokenSendPage() {
               <p className="text-sm text-[var(--abcpay-muted)]">
                 {token?.protocol ?? 'SLP'} token balance
               </p>
-              <p className="text-xl font-medium mt-1">
-                {token ? `${formatTokenAtoms(token.atoms, decimals)} ${label}` : 'Loading…'}
-              </p>
-              {token?.name && token.name !== label && (
-                <p className="text-xs text-[var(--abcpay-muted)] mt-1">{token.name}</p>
-              )}
+              <div className="flex items-center gap-3 mt-2">
+                {tokenId && <TokenIcon tokenId={tokenId} size={128} className="w-10 h-10" />}
+                <div className="min-w-0">
+                  <p className="text-xl font-medium">
+                    {token ? `${formatTokenAtoms(token.atoms, decimals)} ${label}` : 'Loading…'}
+                  </p>
+                  {token?.name && token.name !== label && (
+                    <p className="text-xs text-[var(--abcpay-muted)] mt-0.5 truncate">{token.name}</p>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div>
@@ -183,7 +189,7 @@ export function TokenSendPage() {
               {token && (
                 <button
                   type="button"
-                  onClick={() => setAmount(formatTokenAtoms(token.atoms, decimals))}
+                  onClick={() => setAmount(formatTokenAtoms(token.atoms, decimals, { grouped: false }))}
                   className="text-xs text-[var(--abcpay-accent)] mt-1"
                 >
                   Send all {formatTokenAtoms(token.atoms, decimals)} {label}

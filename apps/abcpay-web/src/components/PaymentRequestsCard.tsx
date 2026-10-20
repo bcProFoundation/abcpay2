@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import type { WalletResponse } from '@bcpros/abcpay-models';
+import { formatAmount } from '@bcpros/abcpay-wallet-core';
 import { useWallets } from '../context/WalletContext';
 import { api } from '../lib/api';
 import {
@@ -108,8 +109,8 @@ export function PaymentRequestsCard({ walletId }: { walletId: string }) {
     if (record.tokenId) {
       return `${record.atoms ?? '0'} ${shortKey(record.tokenId)}`;
     }
-    if (!config || record.amountSat === undefined) return 'Any amount';
-    return `${(record.amountSat / config.unitToSatoshi).toFixed(config.unitDecimals)} ${config.unitName}`;
+    if (!remote || !config || record.amountSat === undefined) return 'Any amount';
+    return formatAmount(remote.coin, record.amountSat);
   };
 
   const handleCreate = async () => {

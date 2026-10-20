@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import type { TxHistoryItem } from '@bcpros/abcpay-models';
+import { formatAmount } from '@bcpros/abcpay-wallet-core';
 import { useWallets } from '../context/WalletContext';
 import { useNotifications } from '../context/NotificationContext';
 import { api } from '../lib/api';
@@ -36,8 +36,6 @@ export function HistoryPage() {
     return <p className="p-8 text-center text-[var(--abcpay-muted)]">Wallet not found</p>;
   }
 
-  const config = COIN_CONFIGS[wallet.coin];
-
   return (
     <div className="max-w-lg mx-auto">
       <header className="px-4 py-4 border-b border-white/10">
@@ -53,7 +51,7 @@ export function HistoryPage() {
               <div className="flex justify-between">
                 <span className={item.action === 'received' ? 'text-green-400' : 'text-red-300'}>
                   {item.action === 'received' ? '+' : '-'}
-                  {(item.amount / config.unitToSatoshi).toFixed(config.unitDecimals)} {config.unitName}
+                  {formatAmount(wallet.coin, item.amount)}
                 </span>
                 <span className="text-xs text-[var(--abcpay-muted)]">
                   {item.confirmations ? 'Confirmed' : 'Unconfirmed'}

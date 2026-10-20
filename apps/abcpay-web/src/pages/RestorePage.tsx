@@ -193,7 +193,8 @@ export function RestorePage() {
           walletFromResponse(accountResponse, info.copayerId, name, {
             creds: effectiveCreds,
             coinType: effectiveCreds.coinType ?? info.coinType,
-            seedId: seedIdForCredentials(effectiveCreds)
+            seedId: seedIdForCredentials(effectiveCreds),
+            walletName: name
           })
         );
       }

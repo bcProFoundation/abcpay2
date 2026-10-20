@@ -15,14 +15,227 @@
   box-sizing: border-box;
 }
 
+html {
+  /* Prefer our pull-to-reload over competing overscroll UX in the PWA shell. */
+  overscroll-behavior-y: contain;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
   background: var(--abcpay-bg);
   color: var(--abcpay-text);
   min-height: 100vh;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 #root {
   min-height: 100vh;
+  /* In a standalone PWA the status bar overlays the web view
+     (apple-mobile-web-app-status-bar-style: black-translucent), so the
+     first header must clear it instead of sitting under the clock. */
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Pull-to-reload (iOS standalone PWA has no native Safari PTR). */
+.ptr-indicator {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 0.35rem);
+  left: 50%;
+  z-index: 60;
+  transform: translate3d(-50%, calc(-120% + var(--ptr-pull, 0px)), 0);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.ptr-indicator.is-visible {
+  opacity: 1;
+}
+
+.ptr-indicator-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, #1a1a1a 78%, transparent);
+  border: 1px solid color-mix(in srgb, #ffffff 14%, transparent);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  color: var(--abcpay-muted);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.ptr-indicator.is-armed .ptr-indicator-inner {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--abcpay-accent) 55%, transparent);
+}
+
+.ptr-indicator.is-force .ptr-indicator-inner {
+  color: #ffffff;
+  border-color: color-mix(in srgb, #f59e0b 65%, transparent);
+}
+
+.ptr-indicator.is-done .ptr-indicator-inner {
+  color: #86efac;
+  border-color: color-mix(in srgb, #22c55e 45%, transparent);
+}
+
+.ptr-spinner {
+  width: 1.05rem;
+  height: 1.05rem;
+  transform: rotate(calc(var(--ptr-progress, 0) * 270deg));
+}
+
+.ptr-indicator.is-reloading .ptr-spinner {
+  animation: ptr-spin 0.75s linear infinite;
+  transform: none;
+}
+
+.ptr-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+@keyframes ptr-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ptr-indicator.is-reloading .ptr-spinner {
+    animation: none;
+  }
+}
+
+/* Floating liquid-glass tab bar (WLotus-style) */
+.glass-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: 100%;
+  z-index: 45;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  padding: 0 1.1rem calc(0.85rem + env(safe-area-inset-bottom, 0px));
+  transform: translate3d(0, 0, 0);
+  -webkit-backface-visibility: hidden;
+}
+
+.glass-nav-shell {
+  --glass-fill: color-mix(in srgb, #1a1a1a 48%, transparent);
+  --glass-rim: color-mix(in srgb, #ffffff 16%, transparent);
+  --glass-blob: color-mix(in srgb, var(--abcpay-accent) 28%, transparent);
+  --glass-ink: color-mix(in srgb, #ffffff 52%, transparent);
+  --glass-ink-active: #ffffff;
+  --glass-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  pointer-events: auto;
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  width: min(22rem, 100%);
+  padding: 0.28rem;
+  border-radius: 999px;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-rim);
+  box-shadow: var(--glass-shadow);
+}
+
+.glass-nav-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+}
+
+.glass-nav-blob {
+  position: absolute;
+  top: 0.28rem;
+  bottom: 0.28rem;
+  left: 0.28rem;
+  width: calc((100% - 0.56rem) / 3);
+  border-radius: 999px;
+  background: var(--glass-blob);
+  border: 1px solid color-mix(in srgb, #ffffff 12%, transparent);
+  box-shadow: none;
+  transform: translateX(0);
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 0;
+}
+
+.glass-nav-shell--scan .glass-nav-blob {
+  transform: translateX(100%);
+}
+
+.glass-nav-shell--settings .glass-nav-blob {
+  transform: translateX(200%);
+}
+
+.glass-nav-btn {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  min-height: 2.75rem;
+  padding: 0.35rem 0.4rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--glass-ink);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.glass-nav-btn.is-active {
+  color: var(--glass-ink-active);
+}
+
+.glass-nav-btn svg {
+  display: block;
+  flex-shrink: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-nav-blob {
+    transition: none;
+  }
+}
+
+/* iOS WebKit: backdrop-filter on a position:fixed tree paints in document flow. */
+@supports (-webkit-touch-callout: none) {
+  .glass-nav-shell::before {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass-nav-shell {
+    --glass-fill: color-mix(in srgb, #1a1a1a 88%, transparent);
+    --glass-blob: color-mix(in srgb, var(--abcpay-accent) 38%, transparent);
+  }
 }

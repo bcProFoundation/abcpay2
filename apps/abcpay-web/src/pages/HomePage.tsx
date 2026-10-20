@@ -1,12 +1,9 @@
 import { Link } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
-import { AbcPayLogo, EyeToggle } from '../components/ui';
-import { hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
-import {
-  useWallets,
-  accountDisplayTitle,
-  accountNetworkLabel
-} from '../context/WalletContext';
+import { AbcPayLogo, CoinIcon, EyeToggle } from '../components/ui';
+import { TokenIcon } from '../components/TokenIcon';
+import { formatFixed, hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
+import { useWallets, accountNetworkLabel } from '../context/WalletContext';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
 
 export function HomePage() {
@@ -17,7 +14,6 @@ export function HomePage() {
     showBalance,
     setShowBalance,
     totalFiatBalance,
-    refreshBalances,
     tokenVisibility,
     tokensByAccount
   } = useWallets();
@@ -25,7 +21,7 @@ export function HomePage() {
   if (seedWallets.length === 0) {
     return (
       <div className="max-w-lg mx-auto">
-        <header className="flex items-center justify-between px-4 py-4 border-b border-white/10">
+        <header className="flex items-center px-4 py-4 border-b border-white/10">
           <AbcPayLogo />
         </header>
         <div className="px-4 py-12 text-center bg-[var(--abcpay-surface)] rounded-2xl m-4">
@@ -48,17 +44,11 @@ export function HomePage() {
 
   return (
     <div className="max-w-lg mx-auto">
-      <header className="flex items-center justify-between px-4 py-4 border-b border-white/10">
+      <header className="flex items-center px-4 py-4 border-b border-white/10">
         <AbcPayLogo />
-        <button
-          onClick={() => void refreshBalances()}
-          className="text-sm text-[var(--abcpay-accent)] hover:underline"
-        >
-          Refresh
-        </button>
       </header>
 
-      <div className="px-4 py-6">
+      <div className="px-4 pt-2 pb-6">
         <div className="text-center mb-6">
           <p className="text-sm text-[var(--abcpay-muted)] mb-2">Total cash value</p>
           <div className="flex items-center justify-center gap-2">
@@ -72,8 +62,8 @@ export function HomePage() {
         {seedWallets.map(wallet => (
           <div key={wallet.id} className="mb-6 p-4 bg-[var(--abcpay-surface)] rounded-2xl">
             <div className="flex items-center justify-between mb-3">
-              <p className="font-medium">Wallet</p>
-              <span className="text-xs text-[var(--abcpay-muted)] font-mono">
+              <p className="font-medium truncate pr-3">{wallet.name}</p>
+              <span className="text-xs text-[var(--abcpay-muted)] font-mono shrink-0">
                 {walletDisplayId(wallet.id)}
               </span>
             </div>
@@ -82,8 +72,26 @@ export function HomePage() {
                 const entry = group.entries[0];
                 const cfg = COIN_CONFIGS[group.coin];
                 const totalSats = group.entries.reduce((sum, e) => sum + e.balance, 0);
-                const coinAmount = (totalSats / cfg.unitToSatoshi).toFixed(cfg.unitDecimals);
-                const accountTokens = group.entries.flatMap(e => tokensByAccount[e.id] ?? []);
+                const coinAmount = formatFixed(totalSats / cfg.unitToSatoshi, cfg.unitDecimals);
+                // Grouped entries can hold the same token — aggregate atoms
+                // per tokenId so each token shows once with its total.
+                const tokensById = new Map<string, (typeof tokensByAccount)[string][number]>();
+                for (const e of group.entries) {
+                  for (const token of tokensByAccount[e.id] ?? []) {
+                    const existing = tokensById.get(token.tokenId);
+                    if (existing) {
+                      try {
+                        existing.atoms = (BigInt(existing.atoms) + BigInt(token.atoms)).toString();
+                      } catch {
+                        // keep original atoms on malformed values
+                      }
+                      existing.isMintBaton = existing.isMintBaton || token.isMintBaton;
+                    } else {
+                      tokensById.set(token.tokenId, { ...token });
+                    }
+                  }
+                }
+                const accountTokens = [...tokensById.values()];
                 const shownTokens = visibleTokens(accountTokens, tokenVisibility);
                 const hiddenCount = hiddenTokenCount(accountTokens, tokenVisibility);
                 const isCurrent = group.entries.some(e => e.id === activeAccount?.id);
@@ -100,26 +108,34 @@ export function HomePage() {
                     <Link
                       to={`/wallet/${entry.id}`}
                       onClick={() => setActiveAccount(entry.id)}
-                      className="block mb-2 hover:opacity-80"
+                      className="block hover:opacity-80"
                     >
-                      <span className="block text-sm font-medium font-mono truncate">
-                        Account {accountNetworkLabel(group.coin)}{' '}
-                        {accountDisplayTitle({ ...entry, accountPath: group.accountPath })}
-                      </span>
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <span className="text-sm font-medium font-mono truncate">
+                          {accountNetworkLabel(group.coin)} {group.accountPath}
+                        </span>
+                        {group.n > 1 && (
+                          <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300">
+                            {group.m}-of-{group.n}
+                          </span>
+                        )}
+                      </div>
                       {(group.network !== 'livenet' || incomplete) && (
-                        <span className="block text-xs text-[var(--abcpay-muted)]">
+                        <p className="text-xs text-[var(--abcpay-muted)] mb-1">
                           {[
                             group.network !== 'livenet' ? group.network : null,
                             incomplete ? 'pending' : null
                           ]
                             .filter(Boolean)
                             .join(' · ')}
-                        </span>
+                        </p>
                       )}
-                    </Link>
                     <div className="space-y-1 pl-1">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-[var(--abcpay-muted)]">{cfg.unitName}</span>
+                        <span className="inline-flex items-center gap-1.5 text-[var(--abcpay-muted)]">
+                          <CoinIcon coin={group.coin} className="w-4 h-4" />
+                          {cfg.unitName}
+                        </span>
                         <span className="font-mono">{showBalance ? coinAmount : '****'}</span>
                       </div>
                       {shownTokens.map(token => (
@@ -127,8 +143,9 @@ export function HomePage() {
                           key={token.tokenId}
                           className="flex items-center justify-between text-sm"
                         >
-                          <span className="text-[var(--abcpay-muted)] truncate pr-2">
-                            {tokenLabel(token)}
+                          <span className="inline-flex items-center gap-1.5 text-[var(--abcpay-muted)] truncate pr-2">
+                            <TokenIcon tokenId={token.tokenId} size={64} className="w-4 h-4" />
+                            <span className="truncate">{tokenLabel(token)}</span>
                           </span>
                           <span className="font-mono shrink-0">
                             {showBalance
@@ -144,6 +161,7 @@ export function HomePage() {
                         </p>
                       )}
                     </div>
+                    </Link>
                   </div>
                 );
               })}

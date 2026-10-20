@@ -487,9 +487,30 @@ export class WalletService {
     const byAddress: Record<string, number> = {};
     const tokens = new Map<string, TokenBalance>();
 
-    for (const addr of walletAddresses) {
-      try {
-        const balances = await getBalancesForAddress(chain, addr.address, chronikCfg());
+    // Scan addresses concurrently (bounded) and retry each once: previously
+    // a single transient indexer error silently zeroed that address — for a
+    // one-address Account that meant a 0 balance and no tokens at all, and
+    // sequential scanning of many-address Accounts blocked the whole refresh.
+    const ADDRESS_CONCURRENCY = 4;
+    for (let start = 0; start < walletAddresses.length; start += ADDRESS_CONCURRENCY) {
+      const batch = walletAddresses.slice(start, start + ADDRESS_CONCURRENCY);
+      const batchResults = await Promise.all(
+        batch.map(async addr => {
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              return { addr, balances: await getBalancesForAddress(chain, addr.address, chronikCfg()) };
+            } catch {
+              if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 250));
+            }
+          }
+          return { addr, balances: null };
+        })
+      );
+      for (const { addr, balances } of batchResults) {
+        if (!balances) {
+          byAddress[addr.address] = 0;
+          continue;
+        }
         byAddress[addr.address] = balances.spendableSatoshis;
         total += balances.spendableSatoshis;
         tokenSatoshis += balances.tokenSatoshis;
@@ -502,8 +523,6 @@ export class WalletService {
             tokens.set(token.tokenId, { ...token });
           }
         }
-      } catch {
-        byAddress[addr.address] = 0;
       }
     }
 

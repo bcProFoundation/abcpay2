@@ -3,9 +3,20 @@ import type { EnvelopeNotificationEvent, NotificationEvent } from '@bcpros/abcpa
 type Subscriber = (event: NotificationEvent) => void;
 type EnvelopeSubscriber = (event: EnvelopeNotificationEvent) => void;
 
+export interface PushSubscriptionRecord {
+  copayerId: string;
+  walletId: string;
+  token: string;
+  platform: string;
+  packageName: string;
+  subscription?: Record<string, unknown>;
+  updatedAt: number;
+}
+
 export class NotificationService {
   private subscribers = new Map<string, Set<Subscriber>>();
   private identitySubscribers = new Map<string, Set<EnvelopeSubscriber>>();
+  private pushSubscriptions = new Map<string, PushSubscriptionRecord>();
 
   constructor() {
     // Methods may be passed around as callbacks (e.g. the chain watcher's default publisher).
@@ -81,9 +92,36 @@ export class NotificationService {
     return this.identitySubscribers.get(identity)?.size ?? 0;
   }
 
+  registerPushSubscription(record: Omit<PushSubscriptionRecord, 'updatedAt'>): PushSubscriptionRecord {
+    const key = `${record.copayerId}|${record.token}`;
+    const full: PushSubscriptionRecord = { ...record, updatedAt: Date.now() };
+    this.pushSubscriptions.set(key, full);
+    return full;
+  }
+
+  unregisterPushSubscription(copayerId: string, token?: string): number {
+    let removed = 0;
+    for (const [key, sub] of this.pushSubscriptions) {
+      if (sub.copayerId === copayerId && (!token || sub.token === token)) {
+        this.pushSubscriptions.delete(key);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
+  getPushSubscriptions(walletId: string): PushSubscriptionRecord[] {
+    const list: PushSubscriptionRecord[] = [];
+    for (const sub of this.pushSubscriptions.values()) {
+      if (sub.walletId === walletId) list.push(sub);
+    }
+    return list;
+  }
+
   clear() {
     this.subscribers.clear();
     this.identitySubscribers.clear();
+    this.pushSubscriptions.clear();
   }
 }
 

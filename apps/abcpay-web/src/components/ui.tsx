@@ -3,12 +3,26 @@ import type { SupportedCoin } from '@bcpros/abcpay-models';
 
 export function AbcPayLogo({ className = '' }: { className?: string }) {
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#016cbf] to-[#0080CA] flex items-center justify-center font-bold text-sm">
-        A
-      </div>
-      <span className="font-semibold text-lg tracking-tight">AbcPay</span>
+    <div className={`flex items-center gap-2.5 ${className}`}>
+      <img src="/abcpay-logo.svg" alt="AbcPay" className="w-8 h-8 shrink-0" />
+      <img src="/abcpay-text.svg" alt="AbcPay" className="h-4 w-auto" />
     </div>
+  );
+}
+
+export function CoinIcon({
+  coin,
+  className = 'w-5 h-5'
+}: {
+  coin: SupportedCoin;
+  className?: string;
+}) {
+  return (
+    <img
+      src={`/currencies/${coin}.svg`}
+      alt={COIN_CONFIGS[coin].name}
+      className={`rounded-full shrink-0 ${className}`}
+    />
   );
 }
 
@@ -16,9 +30,10 @@ export function CoinBadge({ coin }: { coin: SupportedCoin }) {
   const config = COIN_CONFIGS[coin];
   return (
     <span
-      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium"
       style={{ backgroundColor: config.backgroundColor + '33', color: config.coinColor }}
     >
+      <CoinIcon coin={coin} className="w-3.5 h-3.5" />
       {config.unitName}
     </span>
   );
@@ -71,55 +86,48 @@ export function EyeToggle({ show, onToggle }: { show: boolean; onToggle: () => v
 }
 
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
+
+type AppTab = 'home' | 'scan' | 'settings';
+
+function activeTab(pathname: string): AppTab {
+  if (pathname.startsWith('/settings') || pathname.startsWith('/restore')) return 'settings';
+  if (pathname.startsWith('/scan')) return 'scan';
+  return 'home';
+}
 
 export function TabBar() {
   const location = useLocation();
-  const tabs = [
-    { icon: 'home', label: 'Home', to: '/' },
-    { icon: 'scan', label: 'Scan', to: '/scan' },
-    { icon: 'settings', label: 'Settings', to: '/settings' }
+  const tab = activeTab(location.pathname);
+  const tabs: { id: AppTab; icon: string; label: string; to: string }[] = [
+    { id: 'home', icon: 'home', label: 'Home', to: '/' },
+    { id: 'scan', icon: 'scan', label: 'Scan', to: '/scan' },
+    { id: 'settings', icon: 'settings', label: 'Settings', to: '/settings' }
   ];
 
-  return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-[var(--abcpay-surface)] border-t border-white/10 safe-area-bottom">
-      <div className="max-w-lg mx-auto flex justify-around py-2">
-        {tabs.map(tab => (
-          <TabItem
-            key={tab.to}
-            icon={tab.icon}
-            label={tab.label}
-            to={tab.to}
-            active={location.pathname === tab.to}
-          />
+  const nav = (
+    <nav className="glass-nav" aria-label="Main">
+      <div className={`glass-nav-shell glass-nav-shell--${tab}`}>
+        <span className="glass-nav-blob" aria-hidden="true" />
+        {tabs.map(item => (
+          <Link
+            key={item.to}
+            to={item.to}
+            className={`glass-nav-btn${tab === item.id ? ' is-active' : ''}`}
+            aria-current={tab === item.id ? 'page' : undefined}
+          >
+            <TabIcon name={item.icon} />
+            <span>{item.label}</span>
+          </Link>
         ))}
       </div>
     </nav>
   );
-}
 
-function TabItem({
-  icon,
-  label,
-  to,
-  active = false
-}: {
-  icon: string;
-  label: string;
-  to: string;
-  active?: boolean;
-}) {
-  return (
-    <Link
-      to={to}
-      className={`flex flex-col items-center gap-1 px-4 py-1 text-xs transition-colors ${
-        active ? 'text-[var(--abcpay-accent)]' : 'text-[var(--abcpay-muted)]'
-      }`}
-    >
-      <TabIcon name={icon} />
-      {label}
-    </Link>
-  );
+  /* Body portal: iOS treats position:fixed inside #root as in-flow when a
+     descendant uses backdrop-filter (same fix as WLotus). */
+  return createPortal(nav, document.body);
 }
 
 function TabIcon({ name }: { name: string }) {

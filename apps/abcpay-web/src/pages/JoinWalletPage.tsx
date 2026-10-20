@@ -48,7 +48,9 @@ export function JoinWalletPage() {
         0,
         result.copayerId,
         data.name,
-        'pending'
+        'pending',
+        undefined,
+        { walletName: data.name }
       );
 
       addWallet(localWallet);

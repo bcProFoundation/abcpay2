@@ -6,6 +6,8 @@ import {
   accountNetworkLabel,
   labelForAccount
 } from '../context/WalletContext';
+import { useNotifications } from '../context/NotificationContext';
+import { TokenIcon } from '../components/TokenIcon';
 import { API_URL } from '../lib/api';
 import { tokenLabel } from '../lib/token-format';
 
@@ -20,6 +22,26 @@ export function SettingsPage() {
     setTokenVisible,
     knownTokens
   } = useWallets();
+  const {
+    permission,
+    notificationsEnabled,
+    serviceWorkerReady,
+    pushRegisteredCount,
+    enableNotifications,
+    disableNotifications,
+    canInstallPwa,
+    isStandalone,
+    promptInstallPwa
+  } = useNotifications();
+
+  const notificationStatusLabel =
+    permission === 'unsupported'
+      ? 'Unsupported in this browser'
+      : permission === 'denied'
+        ? 'Blocked in browser site settings'
+        : notificationsEnabled
+          ? `Registered (${pushRegisteredCount} ${pushRegisteredCount === 1 ? 'Account' : 'Accounts'})`
+          : 'Disabled';
 
   return (
     <div className="max-w-lg mx-auto">
@@ -31,6 +53,53 @@ export function SettingsPage() {
         <SettingsItem label="Account server" value={API_URL} />
         <SettingsItem label="Supported coins" value="XEC, DOGE" />
         <SettingsItem label="Version" value="0.2.0" />
+
+        <div className="p-4 bg-[var(--abcpay-surface)] rounded-xl">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-medium">Notifications</p>
+              <p className="text-xs text-[var(--abcpay-muted)] mt-0.5">
+                {notificationStatusLabel}
+                {serviceWorkerReady ? ' · Service Worker active' : ''}
+              </p>
+            </div>
+            {permission !== 'unsupported' && permission !== 'denied' && (
+              <button
+                type="button"
+                onClick={() =>
+                  void (notificationsEnabled ? disableNotifications() : enableNotifications())
+                }
+                className="text-xs px-3 py-1.5 rounded-full border border-white/10 text-[var(--abcpay-accent)] shrink-0"
+              >
+                {notificationsEnabled ? 'Disable' : 'Enable'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="p-4 bg-[var(--abcpay-surface)] rounded-xl">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-medium">Progressive Web App (PWA)</p>
+              <p className="text-xs text-[var(--abcpay-muted)] mt-0.5">
+                {isStandalone
+                  ? 'Installed (running in standalone window)'
+                  : canInstallPwa
+                    ? 'Ready to install as a standalone app'
+                    : 'Installable from your browser menu (Install AbcPay / Add to Home Screen)'}
+              </p>
+            </div>
+            {canInstallPwa && (
+              <button
+                type="button"
+                onClick={() => void promptInstallPwa()}
+                className="text-xs px-3 py-1.5 rounded-full border border-white/10 text-[var(--abcpay-accent)] shrink-0"
+              >
+                Install App
+              </button>
+            )}
+          </div>
+        </div>
 
         <Link
           to="/restore"
@@ -56,10 +125,13 @@ export function SettingsPage() {
                   key={token.tokenId}
                   className="flex items-center justify-between gap-3 cursor-pointer"
                 >
-                  <span className="text-sm truncate">
-                    {tokenLabel(token)}
-                    <span className="block text-xs text-[var(--abcpay-muted)] font-mono truncate">
-                      {token.tokenId.slice(0, 16)}…
+                  <span className="flex items-center gap-2.5 min-w-0 text-sm">
+                    <TokenIcon tokenId={token.tokenId} size={64} className="w-8 h-8" />
+                    <span className="truncate">
+                      {tokenLabel(token)}
+                      <span className="block text-xs text-[var(--abcpay-muted)] font-mono truncate">
+                        {token.tokenId.slice(0, 16)}…
+                      </span>
                     </span>
                   </span>
                   <input
@@ -76,7 +148,7 @@ export function SettingsPage() {
 
         {seedWallets.map(wallet => (
           <div key={wallet.id} className="p-4 bg-[var(--abcpay-surface)] rounded-xl">
-            <p className="font-medium mb-1">Wallet</p>
+            <p className="font-medium mb-1">{wallet.name}</p>
             <p className="text-xs text-[var(--abcpay-muted)] font-mono mb-1">
               {walletDisplayId(wallet.id)}
             </p>

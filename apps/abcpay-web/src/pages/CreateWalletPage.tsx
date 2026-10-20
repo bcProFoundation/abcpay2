@@ -70,7 +70,8 @@ export function CreateWalletPage() {
         result.copayerId,
         data.copayerName,
         n === 1 ? 'complete' : 'pending',
-        result.secret
+        result.secret,
+        { walletName: data.name }
       );
 
       addWallet(localWallet);
@@ -148,12 +149,11 @@ export function CreateWalletPage() {
                           : 'border-transparent bg-[var(--abcpay-surface)]'
                       }`}
                     >
-                      <div
-                        className="w-10 h-10 rounded-full mx-auto mb-2 flex items-center justify-center font-bold"
-                        style={{ backgroundColor: config.backgroundColor }}
-                      >
-                        {config.unitName[0]}
-                      </div>
+                      <img
+                        src={`/currencies/${c}.svg`}
+                        alt={config.name}
+                        className="w-10 h-10 rounded-full mx-auto mb-2"
+                      />
                       <p className="font-medium">{config.name}</p>
                     </button>
                   );
