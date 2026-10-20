@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import type { NotificationEvent } from '@bcpros/abcpay-models';
+import { formatAmount } from '@bcpros/abcpay-wallet-core';
 import { getReceiveAddress, deserializeWallet } from '../lib/bwc';
 import { useWallets } from '../context/WalletContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -72,9 +73,7 @@ export function ReceivePage() {
 
   const config = COIN_CONFIGS[wallet.coin];
   const amountLabel =
-    payment?.amount !== undefined
-      ? `+${(payment.amount / config.unitToSatoshi).toFixed(config.unitDecimals)} ${config.unitName}`
-      : '';
+    payment?.amount !== undefined ? `+${formatAmount(wallet.coin, payment.amount)}` : '';
 
   return (
     <div className="max-w-lg mx-auto">

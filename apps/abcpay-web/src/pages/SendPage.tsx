@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
-import { dustThreshold, toSatoshis, validateAddress } from '@bcpros/abcpay-wallet-core';
+import { dustThreshold, formatAmount, toSatoshis, validateAddress } from '@bcpros/abcpay-wallet-core';
 import { createAndSendPayment } from '../lib/tx';
 import { useWallets } from '../context/WalletContext';
 
@@ -60,7 +60,7 @@ export function SendPage() {
         const dust = dustThreshold(wallet.coin);
         if (satoshis < dust) {
           throw new Error(
-            `Minimum payment is ${(dust / config.unitToSatoshi).toFixed(config.unitDecimals)} ${config.unitName} (dust limit)`
+            `Minimum payment is ${formatAmount(wallet.coin, dust)} (dust limit)`
           );
         }
       }
@@ -105,9 +105,7 @@ export function SendPage() {
           <div className="text-center py-8">
             <p className="text-green-400 font-medium mb-2">Transaction sent!</p>
             {sentAmount > 0 && (
-              <p className="text-sm mb-2">
-                {(sentAmount / config.unitToSatoshi).toFixed(config.unitDecimals)} {config.unitName}
-              </p>
+              <p className="text-sm mb-2">{formatAmount(wallet.coin, sentAmount)}</p>
             )}
             <p className="text-xs font-mono break-all text-[var(--abcpay-muted)] mb-6">{txid}</p>
             <button
@@ -121,9 +119,7 @@ export function SendPage() {
           <div className="text-center py-8">
             <p className="text-amber-300 font-medium mb-2">Waiting for co-signers</p>
             {sentAmount > 0 && (
-              <p className="text-sm mb-2">
-                {(sentAmount / config.unitToSatoshi).toFixed(config.unitDecimals)} {config.unitName}
-              </p>
+              <p className="text-sm mb-2">{formatAmount(wallet.coin, sentAmount)}</p>
             )}
             <p className="text-sm text-[var(--abcpay-muted)] mb-6">
               {pending.signed} of {pending.required} signatures collected. Other copayers can sign from
@@ -178,8 +174,7 @@ export function SendPage() {
                 className="w-full px-4 py-3 bg-[var(--abcpay-surface)] rounded-xl border border-white/10 focus:border-[var(--abcpay-accent)] outline-none disabled:opacity-60"
               />
               <p className="text-xs text-[var(--abcpay-muted)] mt-1">
-                Available: {(wallet.balance / config.unitToSatoshi).toFixed(config.unitDecimals)}{' '}
-                {config.unitName}
+                Available: {formatAmount(wallet.coin, wallet.balance)}
               </p>
             </div>
 

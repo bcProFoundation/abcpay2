@@ -183,7 +183,7 @@ export function TokenSendPage() {
               {token && (
                 <button
                   type="button"
-                  onClick={() => setAmount(formatTokenAtoms(token.atoms, decimals))}
+                  onClick={() => setAmount(formatTokenAtoms(token.atoms, decimals, { grouped: false }))}
                   className="text-xs text-[var(--abcpay-accent)] mt-1"
                 >
                   Send all {formatTokenAtoms(token.atoms, decimals)} {label}

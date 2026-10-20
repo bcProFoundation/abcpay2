@@ -7,6 +7,7 @@ import {
   accountPathFor,
   createCredentials,
   DEFAULT_TOKEN_VISIBILITY,
+  formatFiatUsd,
   groupAccountsByWallet,
   seedIdForCredentials,
   sortAccounts,
@@ -464,7 +465,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const value = parseFloat((wallet.fiatBalance ?? '').replace(/[^0-9.-]/g, ''));
       return sum + (Number.isFinite(value) ? value : 0);
     }, 0);
-    setTotalFiatBalance(`$${total.toFixed(2)}`);
+    setTotalFiatBalance(formatFiatUsd(total));
   }, [wallets]);
 
   const setTokenVisible = useCallback((tokenId: string, visible: boolean) => {
@@ -624,7 +625,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             const fiat = await api.getFiatRate(wallet.coin);
             const config = COIN_CONFIGS[wallet.coin];
             const amount = result.balance / config.unitToSatoshi;
-            result.fiatBalance = `$${(amount * fiat.rate).toFixed(2)}`;
+            result.fiatBalance = formatFiatUsd(amount * fiat.rate);
           } catch {
             // Fiat is display-only; never let it discard a good balance.
           }
