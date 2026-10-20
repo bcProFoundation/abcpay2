@@ -70,7 +70,8 @@ export function CreateWalletPage() {
         result.copayerId,
         data.copayerName,
         n === 1 ? 'complete' : 'pending',
-        result.secret
+        result.secret,
+        { walletName: data.name }
       );
 
       addWallet(localWallet);

@@ -26,6 +26,8 @@ import { api, type AuthContext } from '../lib/api';
 export interface LocalAccount {
   id: string;
   name: string;
+  /** Name given to the Wallet (seed) when it was imported/created on this device. */
+  walletName?: string;
   coin: SupportedCoin;
   m: number;
   n: number;
@@ -54,6 +56,9 @@ export type LocalWallet = LocalAccount;
 export interface SeedWallet {
   /** Wallet (seed) id — points to the seed, not a server account record. */
   id: string;
+  /** Name given to this Wallet when imported/created (never the generic server "Wallet <hex>"). */
+  name: string;
+  /** @deprecated Use name */
   label: string;
   accounts: LocalAccount[];
   /** Accounts under this Wallet, grouped by path + coin + network. */
@@ -134,13 +139,46 @@ export function groupAccountsByPath(accounts: LocalAccount[]): GroupedAccount[] 
   return [...byKey.values()];
 }
 
+function meaningfulWalletName(value?: string): string | undefined {
+  const name = value?.trim();
+  if (!name) return undefined;
+  // Migrated/server-generated placeholders, not names a user chose.
+  if (/^wallet [0-9a-f-]{6,}$/i.test(name)) return undefined;
+  if (/^copayer [0-9a-f]{6,}$/i.test(name)) return undefined;
+  if (name.toLowerCase() === 'wallet') return undefined;
+  return name;
+}
+
+/**
+ * Display name for a Wallet (seed): the name given when it was imported or
+ * created on this device. Accounts saved before walletName existed fall
+ * back to their (non-generic) account name, then the import-time copayer
+ * name, so already-imported Wallets get their name without a re-import.
+ */
+export function walletDisplayName(
+  accounts: readonly Pick<LocalAccount, 'walletName' | 'name' | 'copayerName'>[]
+): string {
+  for (const account of accounts) {
+    const name =
+      meaningfulWalletName(account.walletName) ??
+      meaningfulWalletName(account.name) ??
+      meaningfulWalletName(account.copayerName);
+    if (name) return name;
+  }
+  return 'Wallet';
+}
+
 export function groupIntoSeedWallets(accounts: LocalAccount[]): SeedWallet[] {
-  return groupAccountsByWallet(accounts).map(group => ({
-    id: group.id,
-    label: 'Wallet',
-    accounts: group.accounts,
-    groupedAccounts: groupAccountsByPath(group.accounts)
-  }));
+  return groupAccountsByWallet(accounts).map(group => {
+    const name = walletDisplayName(group.accounts);
+    return {
+      id: group.id,
+      name,
+      label: name,
+      accounts: group.accounts,
+      groupedAccounts: groupAccountsByPath(group.accounts)
+    };
+  });
 }
 
 /** @deprecated Use groupIntoSeedWallets */
@@ -724,12 +762,20 @@ export function walletFromBwc(
   copayerName: string,
   status: string,
   secret?: string,
-  extras?: { coinType?: number; seedId?: string; accountId?: string; accountPath?: string; network?: string }
+  extras?: {
+    coinType?: number;
+    seedId?: string;
+    accountId?: string;
+    accountPath?: string;
+    network?: string;
+    walletName?: string;
+  }
 ): LocalAccount {
   const coinType = extras?.coinType;
   return {
     id: walletId,
     name,
+    walletName: extras?.walletName,
     coin,
     m,
     n,
@@ -751,12 +797,19 @@ export function walletFromResponse(
   response: WalletResponse,
   copayerId: string,
   copayerName: string,
-  extras?: { coinType?: number; seedId?: string; accountId?: string; creds?: WalletCredentials }
+  extras?: {
+    coinType?: number;
+    seedId?: string;
+    accountId?: string;
+    creds?: WalletCredentials;
+    walletName?: string;
+  }
 ): LocalAccount {
   const coinType = extras?.coinType ?? extras?.creds?.coinType ?? response.coinType;
   return {
     id: response.id,
     name: response.name,
+    walletName: extras?.walletName,
     coin: response.coin,
     m: response.m,
     n: response.n,

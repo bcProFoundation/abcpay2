@@ -144,7 +144,7 @@ export function SettingsPage() {
 
         {seedWallets.map(wallet => (
           <div key={wallet.id} className="p-4 bg-[var(--abcpay-surface)] rounded-xl">
-            <p className="font-medium mb-1">Wallet</p>
+            <p className="font-medium mb-1">{wallet.name}</p>
             <p className="text-xs text-[var(--abcpay-muted)] font-mono mb-1">
               {walletDisplayId(wallet.id)}
             </p>

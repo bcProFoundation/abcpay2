@@ -85,8 +85,8 @@ export function HomePage() {
         {seedWallets.map(wallet => (
           <div key={wallet.id} className="mb-6 p-4 bg-[var(--abcpay-surface)] rounded-2xl">
             <div className="flex items-center justify-between mb-3">
-              <p className="font-medium">Wallet</p>
-              <span className="text-xs text-[var(--abcpay-muted)] font-mono">
+              <p className="font-medium truncate pr-3">{wallet.name}</p>
+              <span className="text-xs text-[var(--abcpay-muted)] font-mono shrink-0">
                 {walletDisplayId(wallet.id)}
               </span>
             </div>
