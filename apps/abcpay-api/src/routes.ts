@@ -325,6 +325,52 @@ export function createApp() {
     });
   });
 
+  app.post('/v1/pushnotifications/subscriptions/', async c => {
+    try {
+      const walletId = c.req.header('x-wallet-id') ?? (c.get('walletId') as string | undefined);
+      const copayerId =
+        c.req.header('x-copayer-id') ??
+        c.req.header('x-identity') ??
+        (c.get('copayerId') as string | undefined);
+      if (!walletId || !copayerId) {
+        return c.json({ code: 'BAD_REQUEST', message: 'Missing wallet or copayer id' }, 400);
+      }
+
+      const body = await c.req.json().catch(() => ({}));
+      const token = String(body.token ?? body.endpoint ?? copayerId);
+      const platform = String(body.platform ?? 'web');
+      const packageName = String(body.packageName ?? 'cash.abcpay.v2');
+      const record = notificationService.registerPushSubscription({
+        copayerId,
+        walletId,
+        token,
+        platform,
+        packageName,
+        subscription: typeof body.subscription === 'object' ? body.subscription : undefined
+      });
+      return c.json({ ok: true, subscription: record }, 201);
+    } catch (err) {
+      return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);
+    }
+  });
+
+  const handleUnsubscribePush = async (c: Context) => {
+    const copayerId =
+      c.req.header('x-copayer-id') ??
+      c.req.header('x-identity') ??
+      (c.get('copayerId') as string | undefined);
+    if (!copayerId) {
+      return c.json({ code: 'BAD_REQUEST', message: 'Missing copayer id' }, 400);
+    }
+    const token = c.req.param('token');
+    const removed = notificationService.unregisterPushSubscription(copayerId, token);
+    return c.json({ ok: true, removed });
+  };
+
+  app.delete('/v1/pushnotifications/subscriptions/:token', handleUnsubscribePush);
+  app.delete('/v2/pushnotifications/subscriptions/:token', handleUnsubscribePush);
+  app.delete('/v1/pushnotifications/subscriptions/', handleUnsubscribePush);
+
   app.post('/v3/txproposals/', async c => {
     try {
       const walletId = c.req.header('x-wallet-id');

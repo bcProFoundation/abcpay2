@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
-import { AbcPayLogo, EyeToggle } from '../components/ui';
+import { AbcPayLogo, CoinIcon, EyeToggle } from '../components/ui';
 import { hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
 import {
   useWallets,
@@ -119,7 +119,10 @@ export function HomePage() {
                     </Link>
                     <div className="space-y-1 pl-1">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-[var(--abcpay-muted)]">{cfg.unitName}</span>
+                        <span className="inline-flex items-center gap-1.5 text-[var(--abcpay-muted)]">
+                          <CoinIcon coin={group.coin} className="w-4 h-4" />
+                          {cfg.unitName}
+                        </span>
                         <span className="font-mono">{showBalance ? coinAmount : '****'}</span>
                       </div>
                       {shownTokens.map(token => (
@@ -127,8 +130,13 @@ export function HomePage() {
                           key={token.tokenId}
                           className="flex items-center justify-between text-sm"
                         >
-                          <span className="text-[var(--abcpay-muted)] truncate pr-2">
-                            {tokenLabel(token)}
+                          <span className="inline-flex items-center gap-1.5 text-[var(--abcpay-muted)] truncate pr-2">
+                            <img
+                              src="/currencies/eToken.svg"
+                              alt=""
+                              className="w-4 h-4 rounded-full shrink-0"
+                            />
+                            <span className="truncate">{tokenLabel(token)}</span>
                           </span>
                           <span className="font-mono shrink-0">
                             {showBalance

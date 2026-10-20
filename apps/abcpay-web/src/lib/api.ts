@@ -243,5 +243,37 @@ export const api = {
 
   getFeeLevels(coin: SupportedCoin) {
     return apiFetch(`/v2/feelevels/?coin=${coin}`);
+  },
+
+  pushNotificationsSubscribe(
+    auth: AuthContext,
+    opts: {
+      token: string;
+      platform?: string;
+      packageName?: string;
+      subscription?: PushSubscriptionJSON;
+    }
+  ): Promise<{ ok: boolean }> {
+    return apiFetch(
+      '/v1/pushnotifications/subscriptions/',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          token: opts.token,
+          platform: opts.platform ?? 'web',
+          packageName: opts.packageName ?? 'cash.abcpay.v2',
+          subscription: opts.subscription
+        })
+      },
+      headersFromAuth(auth)
+    );
+  },
+
+  pushNotificationsUnsubscribe(auth: AuthContext, token: string): Promise<{ ok: boolean }> {
+    return apiFetch(
+      `/v2/pushnotifications/subscriptions/${encodeURIComponent(token)}`,
+      { method: 'DELETE' },
+      headersFromAuth(auth)
+    );
   }
 };

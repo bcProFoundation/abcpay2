@@ -137,4 +137,19 @@ describe('NotificationService', () => {
 
     unsubscribe();
   });
+
+  it('registers and unregisters push notification subscriptions', () => {
+    const service = new NotificationService();
+    const sub = service.registerPushSubscription({
+      copayerId: 'copayer-1',
+      walletId: 'wallet-1',
+      token: 'web:copayer-1',
+      platform: 'web',
+      packageName: 'cash.abcpay.v2'
+    });
+    expect(sub.updatedAt).toBeGreaterThan(0);
+    expect(service.getPushSubscriptions('wallet-1')).toHaveLength(1);
+    expect(service.unregisterPushSubscription('copayer-1', 'web:copayer-1')).toBe(1);
+    expect(service.getPushSubscriptions('wallet-1')).toHaveLength(0);
+  });
 });

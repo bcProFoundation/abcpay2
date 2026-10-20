@@ -3,12 +3,26 @@ import type { SupportedCoin } from '@bcpros/abcpay-models';
 
 export function AbcPayLogo({ className = '' }: { className?: string }) {
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#016cbf] to-[#0080CA] flex items-center justify-center font-bold text-sm">
-        A
-      </div>
-      <span className="font-semibold text-lg tracking-tight">AbcPay</span>
+    <div className={`flex items-center gap-2.5 ${className}`}>
+      <img src="/abcpay-logo.svg" alt="AbcPay" className="w-8 h-8 shrink-0" />
+      <img src="/abcpay-text.svg" alt="AbcPay" className="h-4 w-auto" />
     </div>
+  );
+}
+
+export function CoinIcon({
+  coin,
+  className = 'w-5 h-5'
+}: {
+  coin: SupportedCoin;
+  className?: string;
+}) {
+  return (
+    <img
+      src={`/currencies/${coin}.svg`}
+      alt={COIN_CONFIGS[coin].name}
+      className={`rounded-full shrink-0 ${className}`}
+    />
   );
 }
 
@@ -16,9 +30,10 @@ export function CoinBadge({ coin }: { coin: SupportedCoin }) {
   const config = COIN_CONFIGS[coin];
   return (
     <span
-      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium"
       style={{ backgroundColor: config.backgroundColor + '33', color: config.coinColor }}
     >
+      <CoinIcon coin={coin} className="w-3.5 h-3.5" />
       {config.unitName}
     </span>
   );
