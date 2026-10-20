@@ -1,15 +1,22 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  accountIdForCredentials,
   accountLabel,
+  accountPathFor,
   createCredentials,
+  DEFAULT_TOKEN_VISIBILITY,
   deriveWalletAddress,
-  groupWalletsByAccount,
+  groupAccountsByWallet,
+  hiddenTokenCount,
+  isTokenVisible,
   relativePath,
   restoreAccountDescriptors,
   restoreCandidatesForMnemonic,
-  sortAccountWallets
+  seedIdForCredentials,
+  sortAccounts,
+  visibleTokens,
+  walletDisplayId,
+  withTokenVisibility
 } from '../index';
 
 const MNEMONIC =
@@ -31,7 +38,7 @@ const fixture = JSON.parse(
   readFileSync(new URL('./fixtures/legacy-parity.json', import.meta.url), 'utf8')
 ) as { wallets: LegacyWallet[] };
 
-describe('one seed = one Account (restore all account-wallets)', () => {
+describe('one seed = one Wallet, derivations are Accounts', () => {
   it('scans every derivation variant: XEC 1899/899/145 + DOGE, single and multisig', () => {
     const descriptors = restoreAccountDescriptors();
     expect(descriptors.map(d => `${d.coin}:${d.accountPath}`)).toEqual([
@@ -49,13 +56,14 @@ describe('one seed = one Account (restore all account-wallets)', () => {
     );
   });
 
-  it('derives 8 unique candidates from one seed, all sharing one Account id', () => {
+  it('derives 8 unique candidates from one seed, all sharing one Wallet (seed) id', () => {
     const candidates = restoreCandidatesForMnemonic(MNEMONIC);
     expect(candidates).toHaveLength(8);
     expect(new Set(candidates.map(c => c.copayerId)).size).toBe(8);
     expect(new Set(candidates.map(c => c.xPubKey)).size).toBe(8);
-    // Seed-level identity: request key at m/1'/0 is variant-independent.
-    expect(new Set(candidates.map(c => accountIdForCredentials(c))).size).toBe(1);
+    // Wallet identity: request key at m/1'/0 is variant-independent.
+    expect(new Set(candidates.map(c => seedIdForCredentials(c))).size).toBe(1);
+    expect(walletDisplayId(seedIdForCredentials(candidates[0]))).toMatch(/^Wallet · [0-9a-f]{8}…$/);
   });
 
   it('finds every v1 wallet under the seed, single-sig and multisig', () => {
@@ -120,29 +128,34 @@ describe('one seed = one Account (restore all account-wallets)', () => {
     }
   });
 
-  it('groups many wallets from one seed into a single Account', () => {
+  it('groups many Accounts from one seed into a single Wallet, regardless of network', () => {
     const seedA = restoreCandidatesForMnemonic(MNEMONIC);
     const seedB = restoreCandidatesForMnemonic(SECOND);
-    const wallets = [
-      { id: 'w-1899', accountId: accountIdForCredentials(seedA[0]), coin: 'xec' as const, coinType: 1899, m: 1, n: 1 },
-      { id: 'w-899', accountId: accountIdForCredentials(seedA[1]), coin: 'xec' as const, coinType: 899, m: 1, n: 1 },
-      { id: 'w-145-multi', accountId: accountIdForCredentials(seedA[5]), coin: 'xec' as const, coinType: 145, m: 2, n: 3 },
-      { id: 'w-doge-multi', accountId: accountIdForCredentials(seedA[7]), coin: 'doge' as const, coinType: 3, m: 2, n: 2 },
-      { id: 'w-other-seed', accountId: accountIdForCredentials(seedB[0]), coin: 'xec' as const, coinType: 1899, m: 1, n: 1 }
+    const accounts = [
+      { id: 'a-1899', seedId: seedIdForCredentials(seedA[0]), coin: 'xec' as const, coinType: 1899, m: 1, n: 1, network: 'livenet' },
+      { id: 'a-899', seedId: seedIdForCredentials(seedA[1]), coin: 'xec' as const, coinType: 899, m: 1, n: 1, network: 'testnet' },
+      { id: 'a-145-multi', seedId: seedIdForCredentials(seedA[5]), coin: 'xec' as const, coinType: 145, m: 2, n: 3, network: 'livenet' },
+      { id: 'a-doge-multi', seedId: seedIdForCredentials(seedA[7]), coin: 'doge' as const, coinType: 3, m: 2, n: 2, network: 'livenet' },
+      { id: 'a-other-seed', seedId: seedIdForCredentials(seedB[0]), coin: 'xec' as const, coinType: 1899, m: 1, n: 1, network: 'livenet' }
     ];
-    const groups = groupWalletsByAccount(wallets);
+    const groups = groupAccountsByWallet(accounts);
     expect(groups).toHaveLength(2);
-    const main = groups.find(g => g.wallets.some(w => w.id === 'w-1899'))!;
-    expect(main.wallets.map(w => w.id)).toEqual(['w-1899', 'w-899', 'w-145-multi', 'w-doge-multi']);
-    expect(groups.find(g => g.id !== main.id)?.wallets.map(w => w.id)).toEqual(['w-other-seed']);
+    const main = groups.find(g => g.accounts.some(a => a.id === 'a-1899'))!;
+    expect(main.accounts.map(a => a.id)).toEqual(['a-1899', 'a-899', 'a-145-multi', 'a-doge-multi']);
+    expect(groups.find(g => g.id !== main.id)?.accounts.map(a => a.id)).toEqual(['a-other-seed']);
   });
 
-  it('labels and sorts account-wallets deterministically', () => {
-    expect(accountLabel({ coin: 'xec', coinType: 1899, m: 1, n: 1 })).toBe('XEC · 1899');
+  it('labels Accounts by path and coin, and sorts deterministically', () => {
+    expect(accountPathFor({ coin: 'xec', coinType: 899, n: 3 })).toBe("m/48'/899'/0'");
+    expect(accountPathFor({ coin: 'doge', coinType: 3, n: 1 })).toBe("m/44'/3'/0'");
+    expect(accountLabel({ coin: 'xec', coinType: 1899, m: 1, n: 1 })).toBe("XEC · m/44'/1899'/0'");
     expect(accountLabel({ coin: 'xec', coinType: 899, m: 2, n: 3 })).toBe(
-      'XEC · 2-of-3 multisig · 899'
+      "XEC · m/48'/899'/0' · 2-of-3"
     );
-    const sorted = sortAccountWallets([
+    expect(accountLabel({ coin: 'xec', coinType: 899, m: 1, n: 1, network: 'testnet' })).toBe(
+      "XEC · m/44'/899'/0' · testnet"
+    );
+    const sorted = sortAccounts([
       { coin: 'doge' as const, coinType: 3, m: 1, n: 1 },
       { coin: 'xec' as const, coinType: 899, m: 2, n: 2 },
       { coin: 'xec' as const, coinType: 899, m: 1, n: 1 },
@@ -156,5 +169,15 @@ describe('one seed = one Account (restore all account-wallets)', () => {
       'xec:899:2',
       'doge:3:1'
     ]);
+  });
+
+  it('hides tokens by default; only Settings-opted-in tokens show', () => {
+    const tokens = [{ tokenId: 'tok-a' }, { tokenId: 'tok-b' }];
+    expect(isTokenVisible(DEFAULT_TOKEN_VISIBILITY, 'tok-a')).toBe(false);
+    expect(visibleTokens(tokens, DEFAULT_TOKEN_VISIBILITY)).toEqual([]);
+    expect(hiddenTokenCount(tokens, DEFAULT_TOKEN_VISIBILITY)).toBe(2);
+    const settings = withTokenVisibility(DEFAULT_TOKEN_VISIBILITY, 'tok-b', true);
+    expect(visibleTokens(tokens, settings).map(t => t.tokenId)).toEqual(['tok-b']);
+    expect(withTokenVisibility(settings, 'tok-b', false)).toEqual(DEFAULT_TOKEN_VISIBILITY);
   });
 });

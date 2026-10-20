@@ -3,21 +3,24 @@ import { Link } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import type { TokenBalance } from '@bcpros/abcpay-models';
 import { AbcPayLogo, CoinBadge, EyeToggle, MultisigBadge } from '../components/ui';
-import { useWallets, labelForWallet } from '../context/WalletContext';
+import { hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
+import { useWallets, labelForAccount } from '../context/WalletContext';
 import { useNotifications } from '../context/NotificationContext';
 import { api } from '../lib/api';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
 
 export function HomePage() {
   const {
-    activeWallet,
-    accounts,
-    setActiveWallet,
+    activeAccount: activeWallet,
+    seedWallets,
+    setActiveAccount: setActiveWallet,
     showBalance,
     setShowBalance,
     totalFiatBalance,
     refreshBalances,
-    authFor
+    authFor,
+    tokenVisibility,
+    tokensByAccount
   } = useWallets();
   const { subscribe } = useNotifications();
   const [tokens, setTokens] = useState<TokenBalance[]>([]);
@@ -61,7 +64,7 @@ export function HomePage() {
           <AbcPayLogo />
         </header>
         <div className="px-4 py-12 text-center bg-[var(--abcpay-surface)] rounded-2xl m-4">
-          <p className="text-[var(--abcpay-muted)] mb-4">No wallet on this device yet</p>
+          <p className="text-[var(--abcpay-muted)] mb-4">No Wallet on this device yet</p>
           <div className="flex flex-col gap-3 items-center">
             <Link
               to="/create-wallet"
@@ -70,7 +73,7 @@ export function HomePage() {
               Create Wallet
             </Link>
             <Link to="/restore" className="text-sm text-[var(--abcpay-accent)] hover:underline">
-              Restore from recovery phrase
+              Restore Wallet from seed phrase
             </Link>
           </div>
         </div>
@@ -110,49 +113,75 @@ export function HomePage() {
           </Link>
           {activeWallet.status !== 'complete' && (
             <p className="text-xs text-amber-300 mt-2">
-              Wallet {activeWallet.status} — open it to invite copayers
+              Account {activeWallet.status} — open it to invite copayers
             </p>
           )}
         </div>
 
-        {accounts.map(account => (
-          <div key={account.id} className="mb-6 p-4 bg-[var(--abcpay-surface)] rounded-2xl">
+        {seedWallets.map(wallet => (
+          <div key={wallet.id} className="mb-6 p-4 bg-[var(--abcpay-surface)] rounded-2xl">
             <div className="flex items-center justify-between mb-1">
-              <p className="font-medium">Account</p>
-              <span className="text-xs text-[var(--abcpay-muted)]">
-                1 seed · {account.wallets.length} {account.wallets.length === 1 ? 'wallet' : 'wallets'}
+              <p className="font-medium">Wallet</p>
+              <span className="text-xs text-[var(--abcpay-muted)] font-mono">
+                {walletDisplayId(wallet.id)}
               </span>
             </div>
             <p className="text-xs text-[var(--abcpay-muted)] mb-3">
-              Every wallet under this seed — 1899, 899, 145, single-sig and multisig.
+              1 seed · {wallet.groupedAccounts.length}{' '}
+              {wallet.groupedAccounts.length === 1 ? 'Account' : 'Accounts'} — each Account is a
+              derivation path with its coins and tokens.
             </p>
             <div className="space-y-2">
-              {account.wallets.map(wallet => {
-                const cfg = COIN_CONFIGS[wallet.coin];
-                const amount = `${(wallet.balance / cfg.unitToSatoshi).toFixed(cfg.unitDecimals)} ${cfg.unitName}`;
+              {wallet.groupedAccounts.map(group => {
+                const entry = group.entries[0];
+                const cfg = COIN_CONFIGS[group.coin];
+                const totalSats = group.entries.reduce((sum, e) => sum + e.balance, 0);
+                const amount = `${(totalSats / cfg.unitToSatoshi).toFixed(cfg.unitDecimals)} ${cfg.unitName}`;
+                const accountTokens = group.entries.flatMap(e => tokensByAccount[e.id] ?? []);
+                const shownTokens = visibleTokens(accountTokens, tokenVisibility);
+                const hiddenCount = hiddenTokenCount(accountTokens, tokenVisibility);
                 return (
-                  <Link
-                    key={wallet.id}
-                    to={`/wallet/${wallet.id}`}
-                    onClick={() => setActiveWallet(wallet.id)}
-                    className={`flex items-center justify-between gap-3 p-3 rounded-xl transition-colors ${
-                      wallet.id === activeWallet.id
-                        ? 'bg-[var(--abcpay-surface-2)] border border-[var(--abcpay-accent)]/40'
-                        : 'bg-black/20 hover:bg-[var(--abcpay-surface-2)]'
-                    }`}
-                  >
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium truncate">{wallet.name}</span>
-                      <span className="block text-xs text-[var(--abcpay-muted)]">
-                        {labelForWallet(wallet)}
-                        {wallet.id === activeWallet.id ? ' · current' : ''}
+                  <div key={group.key}>
+                    <Link
+                      to={`/wallet/${entry.id}`}
+                      onClick={() => setActiveWallet(entry.id)}
+                      className={`flex items-center justify-between gap-3 p-3 rounded-xl transition-colors ${
+                        group.entries.some(e => e.id === activeWallet.id)
+                          ? 'bg-[var(--abcpay-surface-2)] border border-[var(--abcpay-accent)]/40'
+                          : 'bg-black/20 hover:bg-[var(--abcpay-surface-2)]'
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium truncate">{entry.name}</span>
+                        <span className="block text-xs text-[var(--abcpay-muted)] font-mono">
+                          {labelForAccount({ ...entry, accountPath: group.accountPath, network: undefined })}
+                          {group.entries.some(e => e.id === activeWallet.id) ? ' · current' : ''}
+                        </span>
+                        <span className="block text-xs text-[var(--abcpay-muted)]">
+                          {group.networks.join(' · ') || 'livenet'}
+                        </span>
                       </span>
-                    </span>
-                    <span className="text-right shrink-0">
-                      <span className="block font-mono text-sm">{showBalance ? amount : '****'}</span>
-                      <span className="block text-xs text-[var(--abcpay-accent)]">Open →</span>
-                    </span>
-                  </Link>
+                      <span className="text-right shrink-0">
+                        <span className="block font-mono text-sm">{showBalance ? amount : '****'}</span>
+                        <span className="block text-xs text-[var(--abcpay-accent)]">Open →</span>
+                      </span>
+                    </Link>
+                    {(shownTokens.length > 0 || hiddenCount > 0) && (
+                      <div className="ml-3 mt-1 space-y-1">
+                        {shownTokens.map(token => (
+                          <p key={token.tokenId} className="text-xs text-[var(--abcpay-muted)]">
+                            {tokenLabel(token)} · {formatTokenAtoms(token.atoms, token.decimals)}
+                          </p>
+                        ))}
+                        {hiddenCount > 0 && (
+                          <p className="text-xs text-[var(--abcpay-muted)]">
+                            {hiddenCount} token{hiddenCount === 1 ? '' : 's'} hidden — manage in
+                            Settings
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -191,7 +220,7 @@ export function HomePage() {
             </Link>
           </div>
 
-          {tokens.map(token => (
+          {visibleTokens(tokens, tokenVisibility).map(token => (
             <Link
               key={token.tokenId}
               to={`/wallet/${activeWallet.id}/send-token/${token.tokenId}`}
@@ -217,9 +246,9 @@ export function HomePage() {
           ))}
         </div>
 
-        {tokens.length === 0 && (
+        {visibleTokens(tokens, tokenVisibility).length === 0 && (
           <p className="text-xs text-center text-[var(--abcpay-muted)] mt-4">
-            SLP and ALP tokens received by this wallet show up here as tiles.
+            Tokens are hidden by default. Choose which tokens to show in Settings.
           </p>
         )}
       </div>

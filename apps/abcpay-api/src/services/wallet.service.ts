@@ -234,12 +234,34 @@ export class WalletService {
     return [...byWallet.values()];
   }
 
-  async recoverWallets(opts: { copayerIds?: string[]; xPubKeys?: string[] }) {
+  /**
+   * Resolve every Account under a Wallet (seed) by its seed id.
+   * The seed id is the requestPubKey (m/1'/0), shared by all derivation
+   * Accounts of one seed — so a Wallet ID now points to the seed and
+   * recovers all of its Accounts, present and future variants alike.
+   */
+  async findWalletsByRequestPubKeys(requestPubKeys: string[]) {
+    const unique = [...new Set(requestPubKeys.filter(Boolean))];
+    if (unique.length === 0) return [];
+
+    const rows = await db.select().from(copayers).where(inArray(copayers.requestPubKey, unique));
+    const byWallet = new Map<string, Awaited<ReturnType<WalletService['findWalletsByCopayerId']>>[number]>();
+    for (const row of rows) {
+      const info = await this.getJoinInfo(row.walletId);
+      if (info) byWallet.set(info.id, { ...info, copayerId: row.copayerId });
+    }
+    return [...byWallet.values()];
+  }
+
+  async recoverWallets(opts: { copayerIds?: string[]; xPubKeys?: string[]; requestPubKeys?: string[] }) {
     const byWallet = new Map<string, Awaited<ReturnType<WalletService['findWalletsByCopayerId']>>[number]>();
     for (const wallet of await this.findWalletsByCopayerIds(opts.copayerIds ?? [])) {
       byWallet.set(wallet.id, wallet);
     }
     for (const wallet of await this.findWalletsByXPubKeys(opts.xPubKeys ?? [])) {
+      byWallet.set(wallet.id, wallet);
+    }
+    for (const wallet of await this.findWalletsByRequestPubKeys(opts.requestPubKeys ?? [])) {
       byWallet.set(wallet.id, wallet);
     }
     return [...byWallet.values()];

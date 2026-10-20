@@ -9,15 +9,18 @@ import { api } from '../lib/api';
 import { intentFromProposal, mergeJoinRecordUntilComplete } from '../lib/proposal-verify';
 import { broadcastProposal, signAndMaybeBroadcast } from '../lib/tx';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
+import { hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
+import { labelForAccount } from '../context/WalletContext';
 
 const FALLBACK_POLL_MS = 8000;
 const LIVE_POLL_MS = 60000;
 
 export function WalletDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { wallets, showBalance, authFor, credentialsFor, refreshBalances } = useWallets();
+  const { accounts, showBalance, authFor, credentialsFor, refreshBalances, tokenVisibility } =
+    useWallets();
   const { stateFor, subscribe } = useNotifications();
-  const wallet = wallets.find(w => w.id === id);
+  const wallet = accounts.find(w => w.id === id);
   const [remote, setRemote] = useState<WalletResponse | null>(null);
   const [proposals, setProposals] = useState<TxProposal[]>([]);
   const [tokens, setTokens] = useState<TokenBalance[]>([]);
@@ -81,7 +84,7 @@ export function WalletDetailPage() {
   if (!wallet) {
     return (
       <div className="max-w-lg mx-auto px-4 py-20 text-center">
-        <p className="text-[var(--abcpay-muted)]">Wallet not found</p>
+        <p className="text-[var(--abcpay-muted)]">Account not found</p>
       </div>
     );
   }
@@ -114,14 +117,23 @@ export function WalletDetailPage() {
         <ActionButton label="History" icon="history" to={complete ? `/wallet/${wallet.id}/history` : undefined} disabled={!complete} />
       </div>
 
+      <div className="mx-4 p-4 bg-[var(--abcpay-surface)] rounded-2xl mb-4">
+        <h3 className="font-medium mb-2">Account</h3>
+        <p className="text-sm text-[var(--abcpay-muted)] font-mono">
+          {labelForAccount(wallet)}
+        </p>
+        <p className="text-xs text-[var(--abcpay-muted)] mt-1">
+          {wallet.seedId ? walletDisplayId(wallet.seedId) : 'Wallet'} · {wallet.network ?? 'livenet'}
+        </p>
+      </div>
+
       {wallet.n > 1 && (
         <div className="mx-4 p-4 bg-[var(--abcpay-surface)] rounded-2xl mb-4">
-          <h3 className="font-medium mb-2">Shared Wallet</h3>
+          <h3 className="font-medium mb-2">Shared Account</h3>
           <p className="text-sm text-[var(--abcpay-muted)] mb-3">
             {(remote?.m ?? wallet.m)}-of-{(remote?.n ?? wallet.n)} multisig · {remote?.copayers.length ?? 0}/
             {remote?.n ?? wallet.n} copayers
           </p>
-          <p className="text-xs text-[var(--abcpay-muted)] font-mono break-all">Wallet ID: {wallet.id}</p>
           <Link to={`/join-wallet?walletId=${wallet.id}`} className="text-sm text-[var(--abcpay-accent)] mt-2 inline-block">
             Invitation link
           </Link>
@@ -143,11 +155,15 @@ export function WalletDetailPage() {
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-medium">Tokens</h3>
             <span className="text-xs text-[var(--abcpay-muted)]">
-              {tokens.length} held · excluded from spendable {config.unitName}
+              {visibleTokens(tokens, tokenVisibility).length} shown
+              {hiddenTokenCount(tokens, tokenVisibility) > 0
+                ? ` · ${hiddenTokenCount(tokens, tokenVisibility)} hidden (Settings)`
+                : ''}{' '}
+              · excluded from spendable {config.unitName}
             </span>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            {tokens.map(token => (
+            {visibleTokens(tokens, tokenVisibility).map(token => (
               <Link
                 key={token.tokenId}
                 to={`/wallet/${wallet.id}/send-token/${token.tokenId}`}

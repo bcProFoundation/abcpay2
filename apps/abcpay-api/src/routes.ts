@@ -121,10 +121,19 @@ export function createApp() {
           ? [String(body.copayerId)]
           : [];
       const xPubKeys: string[] = Array.isArray(body.xPubKeys) ? body.xPubKeys.map(String) : [];
-      if (copayerIds.length === 0 && xPubKeys.length === 0) {
-        return c.json({ code: 'BAD_REQUEST', message: 'copayerIds or xPubKeys required' }, 400);
+      // Seed id (requestPubKey) — a Wallet ID pointing at the seed recovers every Account under it.
+      const requestPubKeys: string[] = Array.isArray(body.requestPubKeys)
+        ? body.requestPubKeys.map(String)
+        : body.seedId
+          ? [String(body.seedId)]
+          : [];
+      if (copayerIds.length === 0 && xPubKeys.length === 0 && requestPubKeys.length === 0) {
+        return c.json(
+          { code: 'BAD_REQUEST', message: 'copayerIds, xPubKeys or requestPubKeys required' },
+          400
+        );
       }
-      const wallets = await walletService.recoverWallets({ copayerIds, xPubKeys });
+      const wallets = await walletService.recoverWallets({ copayerIds, xPubKeys, requestPubKeys });
       return c.json({ wallets });
     } catch (err) {
       return c.json({ code: 'BAD_REQUEST', message: (err as Error).message }, 400);

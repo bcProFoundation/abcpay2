@@ -8,17 +8,21 @@ import {
 import { createCredentials, type WalletCredentials } from './keys';
 
 /**
- * One seed (mnemonic) is one Account. Under it a v1 user could hold many
- * wallets — each derivation variant is an account-wallet that must be
- * recovered, not just the product-default one:
+ * Terminology: a seed (mnemonic) is a Wallet. Under a Wallet there are
+ * Accounts — one per derivation variant. A v1 user could hold many
+ * Accounts under one Wallet, and all of them must be recovered, not just
+ * the product-default one:
  *
  *   XEC single-sig  m/44'/1899'  (token-aware), m/44'/899' (native), m/44'/145' (RaiPay)
  *   XEC multisig    m/48'/899', m/48'/1899', m/48'/145'
  *   DOGE single-sig m/44'/3'
  *   DOGE multisig   m/48'/3'
  *
- * The previous scan omitted RaiPay (145) multisig, so those wallets were
- * invisible to mnemonic-only restore.
+ * The previous scan omitted RaiPay (145) multisig, so those Accounts were
+ * invisible to mnemonic-only restore. The server wallet ID is internal
+ * plumbing (API routing/auth); the user-facing Wallet identity is the
+ * seed id (see seedIdForCredentials), and each Account is identified by
+ * its derivation path + coin. Network does not split an Account.
  */
 export const XEC_RESTORE_COIN_TYPES: readonly number[] = [
   XEC_TOKEN_AWARE_COIN_TYPE,
@@ -26,7 +30,7 @@ export const XEC_RESTORE_COIN_TYPES: readonly number[] = [
   XEC_RAIPAY_COIN_TYPE
 ];
 
-export interface RestoreAccountDescriptor {
+export interface AccountDescriptor {
   coin: SupportedCoin;
   coinType: number;
   isMultisig: boolean;
@@ -34,9 +38,12 @@ export interface RestoreAccountDescriptor {
   accountPath: string;
 }
 
-/** Every derivation variant a single seed can hold, in stable display order. */
-export function restoreAccountDescriptors(): RestoreAccountDescriptor[] {
-  const out: RestoreAccountDescriptor[] = [];
+/** @deprecated Use AccountDescriptor */
+export type RestoreAccountDescriptor = AccountDescriptor;
+
+/** Every Account (derivation variant) a single Wallet (seed) can hold. */
+export function restoreAccountDescriptors(): AccountDescriptor[] {
+  const out: AccountDescriptor[] = [];
   for (const isMultisig of [false, true]) {
     for (const coinType of XEC_RESTORE_COIN_TYPES) {
       out.push({
@@ -59,9 +66,9 @@ export function restoreAccountDescriptors(): RestoreAccountDescriptor[] {
 }
 
 /**
- * Derive one candidate credential set per account variant for a seed.
+ * Derive one candidate credential set per Account under a Wallet (seed).
  * Deduped by copayerId — request keys are seed-level, so the same seed
- * yields the same requestPubKey for every candidate (see accountIdFor).
+ * yields the same requestPubKey for every candidate (see seedIdForCredentials).
  */
 export function restoreCandidatesForMnemonic(mnemonic: string): WalletCredentials[] {
   const seen = new Set<string>();
@@ -82,32 +89,58 @@ export function restoreCandidatesForMnemonic(mnemonic: string): WalletCredential
 }
 
 /**
- * Seed-level identity shared by every account under one mnemonic.
+ * Wallet (seed) identity shared by every Account under one mnemonic.
  * The request key is derived at m/1'/0 from the master seed, independent of
- * coin / coinType / purpose, so it identifies the Account (seed) that a
- * wallet belongs to without storing the phrase again.
+ * coin / coinType / purpose / network, so it identifies the Wallet without
+ * storing the phrase again. This is the user-facing "Wallet ID" now — it
+ * points to the seed, not to any single server account record.
  */
-export function accountIdForCredentials(creds: Pick<WalletCredentials, 'requestPubKey'>): string {
+export function seedIdForCredentials(creds: Pick<WalletCredentials, 'requestPubKey'>): string {
   return creds.requestPubKey;
 }
 
-/** Human label for one account-wallet, e.g. "XEC · 1899" or "XEC · 2-of-3 multisig · 899". */
+/** @deprecated Use seedIdForCredentials */
+export const accountIdForCredentials = seedIdForCredentials;
+
+/** Short display form of a Wallet (seed) id, e.g. "Wallet · 0267d4ea…" */
+export function walletDisplayId(seedId: string): string {
+  return `Wallet · ${seedId.slice(0, 8)}…`;
+}
+
+/** Derivation root path of an Account, e.g. m/48'/899'/0'. */
+export function accountPathFor(opts: {
+  coin: SupportedCoin;
+  coinType?: number;
+  m?: number;
+  n?: number;
+  isMultisig?: boolean;
+  account?: number;
+}): string {
+  const coinType =
+    opts.coinType ??
+    (opts.coin === 'xec' ? XEC_TOKEN_AWARE_COIN_TYPE : COIN_CONFIGS.doge.bip44CoinType);
+  const multisig = opts.isMultisig ?? ((opts.n ?? 1) > 1);
+  return `m/${multisig ? 48 : 44}'/${coinType}'/${opts.account ?? 0}'`;
+}
+
+/** Human label for one Account: path + coin, e.g. "XEC · m/48'/899'/0' · 2-of-3". */
 export function accountLabel(opts: {
   coin: SupportedCoin;
   coinType?: number;
   m: number;
   n: number;
+  accountPath?: string;
+  network?: string;
 }): string {
   const coin = opts.coin.toUpperCase();
-  const coinType =
-    opts.coinType ?? (opts.coin === 'xec' ? XEC_TOKEN_AWARE_COIN_TYPE : COIN_CONFIGS.doge.bip44CoinType);
-  return opts.n > 1
-    ? `${coin} · ${opts.m}-of-${opts.n} multisig · ${coinType}`
-    : `${coin} · ${coinType}`;
+  const path = opts.accountPath ?? accountPathFor(opts);
+  const base = `${coin} · ${path}`;
+  const withSig = opts.n > 1 ? `${base} · ${opts.m}-of-${opts.n}` : base;
+  return opts.network && opts.network !== 'livenet' ? `${withSig} · ${opts.network}` : withSig;
 }
 
 /** Stable UI ordering: XEC first, single-sig before multisig, then coinType order above. */
-export function compareAccountWallets(
+export function compareAccounts(
   a: { coin: SupportedCoin; coinType?: number; m: number; n: number },
   b: { coin: SupportedCoin; coinType?: number; m: number; n: number }
 ): number {
@@ -126,33 +159,56 @@ export function compareAccountWallets(
   );
 }
 
-export function sortAccountWallets<T extends { coin: SupportedCoin; coinType?: number; m: number; n: number }>(
-  wallets: readonly T[]
+export function sortAccounts<T extends { coin: SupportedCoin; coinType?: number; m: number; n: number }>(
+  accounts: readonly T[]
 ): T[] {
-  return [...wallets].sort(compareAccountWallets);
+  return [...accounts].sort(compareAccounts);
 }
 
-export interface AccountGroup<T> {
-  /** Seed-level Account id (requestPubKey) shared by every wallet in the group. */
+/** @deprecated Use sortAccounts */
+export const sortAccountWallets = sortAccounts;
+/** @deprecated Use compareAccounts */
+export const compareAccountWallets = compareAccounts;
+
+export interface WalletGroup<T> {
+  /** Wallet (seed) id — requestPubKey shared by every Account in the group. */
   id: string;
-  wallets: T[];
+  accounts: T[];
 }
 
 /**
- * Group account-wallets by seed: one seed = one Account. Wallets without a
- * known seed identity fall back to their own id so they are never merged
- * into another seed's Account by accident.
+ * Group Accounts by Wallet (seed): one seed = one Wallet. Accounts without
+ * a known seed identity fall back to their own id so they are never merged
+ * into another Wallet by accident. Network is not part of the grouping.
  */
-export function groupWalletsByAccount<
-  T extends { id: string; accountId?: string; coin: SupportedCoin; coinType?: number; m: number; n: number }
->(wallets: readonly T[]): AccountGroup<T>[] {
-  const byAccount = new Map<string, T[]>();
-  for (const wallet of wallets) {
-    const key = wallet.accountId ?? wallet.id;
-    byAccount.set(key, [...(byAccount.get(key) ?? []), wallet]);
+export function groupAccountsByWallet<
+  T extends {
+    id: string;
+    seedId?: string;
+    coin: SupportedCoin;
+    coinType?: number;
+    m: number;
+    n: number;
   }
-  return [...byAccount.entries()].map(([id, group]) => ({
+>(accounts: readonly T[]): WalletGroup<T>[] {
+  const byWallet = new Map<string, T[]>();
+  for (const account of accounts) {
+    const key = account.seedId ?? account.id;
+    byWallet.set(key, [...(byWallet.get(key) ?? []), account]);
+  }
+  return [...byWallet.entries()].map(([id, group]) => ({
     id,
-    wallets: sortAccountWallets(group)
+    accounts: sortAccounts(group)
   }));
 }
+
+/** @deprecated Use groupAccountsByWallet */
+export function groupWalletsByAccount<
+  T extends { id: string; accountId?: string; coin: SupportedCoin; coinType?: number; m: number; n: number }
+>(wallets: readonly T[]): Array<{ id: string; wallets: T[] }> {
+  return groupAccountsByWallet(
+    wallets.map(w => ({ ...w, seedId: (w as { seedId?: string }).seedId ?? w.accountId }))
+  ).map(g => ({ id: g.id, wallets: g.accounts }));
+}
+
+export type AccountGroup<T> = WalletGroup<T>;
