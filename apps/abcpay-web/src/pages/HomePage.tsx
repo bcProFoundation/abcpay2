@@ -5,7 +5,7 @@ import { hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay
 import {
   useWallets,
   accountDisplayTitle,
-  groupAccountsByNetwork
+  accountNetworkLabel
 } from '../context/WalletContext';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
 
@@ -77,87 +77,76 @@ export function HomePage() {
                 {walletDisplayId(wallet.id)}
               </span>
             </div>
-            <div className="space-y-4">
-              {groupAccountsByNetwork(wallet.groupedAccounts).map(section => (
-                <div key={section.coin}>
-                  <p className="text-xs uppercase tracking-wide text-[var(--abcpay-muted)] mb-2">
-                    {section.networkLabel}
-                  </p>
-                  <div className="space-y-3">
-                    {section.accounts.map(group => {
-                      const entry = group.entries[0];
-                      const cfg = COIN_CONFIGS[group.coin];
-                      const totalSats = group.entries.reduce((sum, e) => sum + e.balance, 0);
-                      const coinAmount = (totalSats / cfg.unitToSatoshi).toFixed(cfg.unitDecimals);
-                      const accountTokens = group.entries.flatMap(e => tokensByAccount[e.id] ?? []);
-                      const shownTokens = visibleTokens(accountTokens, tokenVisibility);
-                      const hiddenCount = hiddenTokenCount(accountTokens, tokenVisibility);
-                      const isCurrent = group.entries.some(e => e.id === activeAccount?.id);
-                      const incomplete = group.entries.some(e => e.status !== 'complete');
-                      return (
+            <div className="space-y-3">
+              {wallet.groupedAccounts.map(group => {
+                const entry = group.entries[0];
+                const cfg = COIN_CONFIGS[group.coin];
+                const totalSats = group.entries.reduce((sum, e) => sum + e.balance, 0);
+                const coinAmount = (totalSats / cfg.unitToSatoshi).toFixed(cfg.unitDecimals);
+                const accountTokens = group.entries.flatMap(e => tokensByAccount[e.id] ?? []);
+                const shownTokens = visibleTokens(accountTokens, tokenVisibility);
+                const hiddenCount = hiddenTokenCount(accountTokens, tokenVisibility);
+                const isCurrent = group.entries.some(e => e.id === activeAccount?.id);
+                const incomplete = group.entries.some(e => e.status !== 'complete');
+                return (
+                  <div
+                    key={group.key}
+                    className={`rounded-xl p-3 ${
+                      isCurrent
+                        ? 'bg-[var(--abcpay-surface-2)] border border-[var(--abcpay-accent)]/40'
+                        : 'bg-black/20'
+                    }`}
+                  >
+                    <Link
+                      to={`/wallet/${entry.id}`}
+                      onClick={() => setActiveAccount(entry.id)}
+                      className="block mb-2 hover:opacity-80"
+                    >
+                      <span className="block text-sm font-medium font-mono truncate">
+                        Account {accountNetworkLabel(group.coin)}{' '}
+                        {accountDisplayTitle({ ...entry, accountPath: group.accountPath })}
+                      </span>
+                      {(group.network !== 'livenet' || incomplete) && (
+                        <span className="block text-xs text-[var(--abcpay-muted)]">
+                          {[
+                            group.network !== 'livenet' ? group.network : null,
+                            incomplete ? 'pending' : null
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      )}
+                    </Link>
+                    <div className="space-y-1 pl-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-[var(--abcpay-muted)]">{cfg.unitName}</span>
+                        <span className="font-mono">{showBalance ? coinAmount : '****'}</span>
+                      </div>
+                      {shownTokens.map(token => (
                         <div
-                          key={group.key}
-                          className={`rounded-xl p-3 ${
-                            isCurrent
-                              ? 'bg-[var(--abcpay-surface-2)] border border-[var(--abcpay-accent)]/40'
-                              : 'bg-black/20'
-                          }`}
+                          key={token.tokenId}
+                          className="flex items-center justify-between text-sm"
                         >
-                          <Link
-                            to={`/wallet/${entry.id}`}
-                            onClick={() => setActiveAccount(entry.id)}
-                            className="block mb-2 hover:opacity-80"
-                          >
-                            <span className="block text-sm font-medium font-mono truncate">
-                              Account {section.networkLabel}{' '}
-                              {accountDisplayTitle({ ...entry, accountPath: group.accountPath })}
-                            </span>
-                            {(group.network !== 'livenet' || incomplete) && (
-                              <span className="block text-xs text-[var(--abcpay-muted)]">
-                                {[
-                                  group.network !== 'livenet' ? group.network : null,
-                                  incomplete ? 'pending' : null
-                                ]
-                                  .filter(Boolean)
-                                  .join(' · ')}
-                              </span>
-                            )}
-                          </Link>
-                          <div className="space-y-1 pl-1">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-[var(--abcpay-muted)]">{cfg.unitName}</span>
-                              <span className="font-mono">
-                                {showBalance ? coinAmount : '****'}
-                              </span>
-                            </div>
-                            {shownTokens.map(token => (
-                              <div
-                                key={token.tokenId}
-                                className="flex items-center justify-between text-sm"
-                              >
-                                <span className="text-[var(--abcpay-muted)] truncate pr-2">
-                                  {tokenLabel(token)}
-                                </span>
-                                <span className="font-mono shrink-0">
-                                  {showBalance
-                                    ? formatTokenAtoms(token.atoms, token.decimals)
-                                    : '****'}
-                                </span>
-                              </div>
-                            ))}
-                            {hiddenCount > 0 && (
-                              <p className="text-xs text-[var(--abcpay-muted)]">
-                                {hiddenCount} token{hiddenCount === 1 ? '' : 's'} hidden — manage
-                                in Settings
-                              </p>
-                            )}
-                          </div>
+                          <span className="text-[var(--abcpay-muted)] truncate pr-2">
+                            {tokenLabel(token)}
+                          </span>
+                          <span className="font-mono shrink-0">
+                            {showBalance
+                              ? formatTokenAtoms(token.atoms, token.decimals)
+                              : '****'}
+                          </span>
                         </div>
-                      );
-                    })}
+                      ))}
+                      {hiddenCount > 0 && (
+                        <p className="text-xs text-[var(--abcpay-muted)]">
+                          {hiddenCount} token{hiddenCount === 1 ? '' : 's'} hidden — manage in
+                          Settings
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ))}

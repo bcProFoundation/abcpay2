@@ -134,26 +134,6 @@ export function groupAccountsByPath(accounts: LocalAccount[]): GroupedAccount[] 
   return [...byKey.values()];
 }
 
-/** Group Accounts under their chain network (eCash / Doge) for Wallet lists. */
-export function groupAccountsByNetwork(
-  groups: GroupedAccount[]
-): Array<{ networkLabel: string; coin: SupportedCoin; accounts: GroupedAccount[] }> {
-  const order: SupportedCoin[] = ['xec', 'doge'];
-  const byCoin = new Map<SupportedCoin, GroupedAccount[]>();
-  for (const group of groups) {
-    const list = byCoin.get(group.coin) ?? [];
-    list.push(group);
-    byCoin.set(group.coin, list);
-  }
-  return order
-    .filter(coin => byCoin.has(coin))
-    .map(coin => ({
-      networkLabel: accountNetworkLabel(coin),
-      coin,
-      accounts: byCoin.get(coin)!
-    }));
-}
-
 export function groupIntoSeedWallets(accounts: LocalAccount[]): SeedWallet[] {
   return groupAccountsByWallet(accounts).map(group => ({
     id: group.id,
