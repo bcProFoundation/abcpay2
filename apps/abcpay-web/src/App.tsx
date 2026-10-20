@@ -14,7 +14,7 @@ import { RestorePage } from './pages/RestorePage';
 
 export function App() {
   return (
-    <div className="min-h-screen pb-20">
+    <div className="min-h-screen pb-28">
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/scan" element={<ScanPage />} />
