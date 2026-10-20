@@ -17,6 +17,7 @@ import {
 import { getCredentials, saveCredentials } from '../lib/credentials-store';
 import { getWalletBalance as getBalanceFromStored } from '../lib/bwc';
 import { api, type AuthContext } from '../lib/api';
+import { prefetchTokenIcons } from '../lib/token-icons';
 
 /**
  * One Account = one derivation (path + coin) under a Wallet (seed).
@@ -449,6 +450,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     localStorage.setItem(KNOWN_TOKENS_KEY, JSON.stringify(knownTokens));
+  }, [knownTokens]);
+
+  // Warm Cashtab/eTokens icons into Cache API whenever we learn new token ids.
+  useEffect(() => {
+    if (knownTokens.length === 0) return;
+    prefetchTokenIcons(knownTokens.map(token => token.tokenId), 64);
   }, [knownTokens]);
 
   useEffect(() => {
