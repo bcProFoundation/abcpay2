@@ -2,7 +2,13 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import type { SupportedCoin, WalletResponse } from '@bcpros/abcpay-models';
 import { COIN_CONFIGS, defaultWalletCoinType } from '@bcpros/abcpay-models';
 import type { WalletCredentials } from '@bcpros/abcpay-wallet-core';
-import { createCredentials } from '@bcpros/abcpay-wallet-core';
+import {
+  accountIdForCredentials,
+  accountLabel,
+  createCredentials,
+  groupWalletsByAccount,
+  sortAccountWallets
+} from '@bcpros/abcpay-wallet-core';
 import { getCredentials, saveCredentials } from '../lib/credentials-store';
 import { getWalletBalance as getBalanceFromStored } from '../lib/bwc';
 import { api, type AuthContext } from '../lib/api';
@@ -20,6 +26,33 @@ export interface LocalWallet {
   fiatBalance: string;
   status: string;
   secret?: string;
+  /** Derivation variant of this account-wallet, e.g. 1899 / 899 / 145 (XEC) or 3 (DOGE). */
+  coinType?: number;
+  /**
+   * Seed-level Account identity (requestPubKey at m/1'/0). Every wallet
+   * restored from the same mnemonic shares it — one seed = one Account,
+   * each derivation variant underneath is an account-wallet.
+   */
+  accountId?: string;
+}
+
+/** One seed (Account) and every account-wallet recovered under it. */
+export interface WalletAccount {
+  id: string;
+  label: string;
+  wallets: LocalWallet[];
+}
+
+export function labelForWallet(wallet: Pick<LocalWallet, 'coin' | 'coinType' | 'm' | 'n'>): string {
+  return accountLabel(wallet);
+}
+
+export function groupWalletsIntoAccounts(wallets: LocalWallet[]): WalletAccount[] {
+  return groupWalletsByAccount(wallets).map(group => ({
+    id: group.id,
+    label: group.wallets.length > 1 ? `Account · ${group.wallets.length} wallets` : 'Account',
+    wallets: group.wallets
+  }));
 }
 
 export interface StoredCredentials extends WalletCredentials {
@@ -29,10 +62,13 @@ export interface StoredCredentials extends WalletCredentials {
 
 interface WalletContextValue {
   wallets: LocalWallet[];
+  /** Wallets grouped by seed — one seed = one Account with many account-wallets. */
+  accounts: WalletAccount[];
   activeWallet: LocalWallet | undefined;
   activeWalletId: string | null;
   setActiveWallet: (id: string) => void;
   addWallet: (wallet: LocalWallet) => void;
+  addWallets: (wallets: LocalWallet[]) => void;
   removeWallet: (id: string) => void;
   refreshBalances: () => Promise<void>;
   showBalance: boolean;
@@ -70,7 +106,8 @@ function accountXPrivFor(stored: {
         variant.coinType,
         defaultWalletCoinType(stored.coin, n > 1),
         stored.coin === 'xec' ? 1899 : undefined,
-        stored.coin === 'xec' ? 899 : undefined
+        stored.coin === 'xec' ? 899 : undefined,
+        stored.coin === 'xec' ? 145 : undefined
       ].filter((value): value is number => typeof value === 'number')
     )
   );
@@ -126,6 +163,28 @@ function parseStoredCredentials(walletId: string, wallets: LocalWallet[]): Store
   }
 }
 
+function storedAccountId(walletId: string): string | undefined {
+  const raw = getCredentials(walletId);
+  if (!raw) return undefined;
+  try {
+    const stored = JSON.parse(raw) as { keys?: { requestPubKey?: string; coinType?: number } };
+    return stored.keys?.requestPubKey;
+  } catch {
+    return undefined;
+  }
+}
+
+function storedCoinType(walletId: string): number | undefined {
+  const raw = getCredentials(walletId);
+  if (!raw) return undefined;
+  try {
+    const stored = JSON.parse(raw) as { keys?: { coinType?: number } };
+    return stored.keys?.coinType;
+  } catch {
+    return undefined;
+  }
+}
+
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [wallets, setWallets] = useState<LocalWallet[]>(loadWallets);
   const [activeWalletId, setActiveWalletId] = useState<string | null>(() => localStorage.getItem(ACTIVE_WALLET_KEY));
@@ -160,9 +219,36 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const activeWallet = wallets.find(wallet => wallet.id === activeWalletId) ?? wallets[wallets.length - 1];
 
   const addWallet = useCallback((wallet: LocalWallet) => {
-    setWallets(prev => (prev.some(w => w.id === wallet.id) ? prev : [...prev, wallet]));
+    setWallets(prev =>
+      prev.some(w => w.id === wallet.id)
+        ? prev.map(w => (w.id === wallet.id ? { ...w, ...wallet } : w))
+        : [...prev, wallet]
+    );
     setActiveWalletId(wallet.id);
   }, []);
+
+  const addWallets = useCallback((incoming: LocalWallet[]) => {
+    if (incoming.length === 0) return;
+    setWallets(prev => {
+      const merged = [...prev];
+      for (const wallet of incoming) {
+        const idx = merged.findIndex(w => w.id === wallet.id);
+        if (idx === -1) merged.push(wallet);
+        else merged[idx] = { ...merged[idx], ...wallet };
+      }
+      return merged;
+    });
+    // Land on the first account-wallet in stable order; Home shows them all.
+    setActiveWalletId(sortAccountWallets(incoming)[0].id);
+  }, []);
+
+  const accounts = groupWalletsIntoAccounts(
+    wallets.map(wallet => ({
+      ...wallet,
+      accountId: wallet.accountId ?? storedAccountId(wallet.id),
+      coinType: wallet.coinType ?? storedCoinType(wallet.id)
+    }))
+  );
 
   const removeWallet = useCallback((id: string) => {
     setWallets(prev => prev.filter(w => w.id !== id));
@@ -263,10 +349,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     <WalletContext.Provider
       value={{
         wallets,
+        accounts,
         activeWallet,
         activeWalletId,
         setActiveWallet,
         addWallet,
+        addWallets,
         removeWallet,
         refreshBalances,
         showBalance,
@@ -299,7 +387,8 @@ export function walletFromBwc(
   copayerId: string,
   copayerName: string,
   status: string,
-  secret?: string
+  secret?: string,
+  extras?: { coinType?: number; accountId?: string }
 ): LocalWallet {
   return {
     id: walletId,
@@ -313,14 +402,17 @@ export function walletFromBwc(
     tokenCount: 0,
     fiatBalance: '$0.00',
     status,
-    secret
+    secret,
+    coinType: extras?.coinType,
+    accountId: extras?.accountId
   };
 }
 
 export function walletFromResponse(
   response: WalletResponse,
   copayerId: string,
-  copayerName: string
+  copayerName: string,
+  extras?: { coinType?: number; accountId?: string; creds?: WalletCredentials }
 ): LocalWallet {
   return {
     id: response.id,
@@ -333,6 +425,9 @@ export function walletFromResponse(
     balance: 0,
     tokenCount: 0,
     fiatBalance: '$0.00',
-    status: response.status
+    status: response.status,
+    coinType: extras?.coinType ?? extras?.creds?.coinType ?? response.coinType,
+    accountId:
+      extras?.accountId ?? (extras?.creds ? accountIdForCredentials(extras.creds) : undefined)
   };
 }

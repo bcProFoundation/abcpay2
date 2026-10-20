@@ -3,14 +3,22 @@ import { Link } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import type { TokenBalance } from '@bcpros/abcpay-models';
 import { AbcPayLogo, CoinBadge, EyeToggle, MultisigBadge } from '../components/ui';
-import { useWallets } from '../context/WalletContext';
+import { useWallets, labelForWallet } from '../context/WalletContext';
 import { useNotifications } from '../context/NotificationContext';
 import { api } from '../lib/api';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
 
 export function HomePage() {
-  const { activeWallet, showBalance, setShowBalance, totalFiatBalance, refreshBalances, authFor } =
-    useWallets();
+  const {
+    activeWallet,
+    accounts,
+    setActiveWallet,
+    showBalance,
+    setShowBalance,
+    totalFiatBalance,
+    refreshBalances,
+    authFor
+  } = useWallets();
   const { subscribe } = useNotifications();
   const [tokens, setTokens] = useState<TokenBalance[]>([]);
 
@@ -106,6 +114,50 @@ export function HomePage() {
             </p>
           )}
         </div>
+
+        {accounts.map(account => (
+          <div key={account.id} className="mb-6 p-4 bg-[var(--abcpay-surface)] rounded-2xl">
+            <div className="flex items-center justify-between mb-1">
+              <p className="font-medium">Account</p>
+              <span className="text-xs text-[var(--abcpay-muted)]">
+                1 seed · {account.wallets.length} {account.wallets.length === 1 ? 'wallet' : 'wallets'}
+              </span>
+            </div>
+            <p className="text-xs text-[var(--abcpay-muted)] mb-3">
+              Every wallet under this seed — 1899, 899, 145, single-sig and multisig.
+            </p>
+            <div className="space-y-2">
+              {account.wallets.map(wallet => {
+                const cfg = COIN_CONFIGS[wallet.coin];
+                const amount = `${(wallet.balance / cfg.unitToSatoshi).toFixed(cfg.unitDecimals)} ${cfg.unitName}`;
+                return (
+                  <Link
+                    key={wallet.id}
+                    to={`/wallet/${wallet.id}`}
+                    onClick={() => setActiveWallet(wallet.id)}
+                    className={`flex items-center justify-between gap-3 p-3 rounded-xl transition-colors ${
+                      wallet.id === activeWallet.id
+                        ? 'bg-[var(--abcpay-surface-2)] border border-[var(--abcpay-accent)]/40'
+                        : 'bg-black/20 hover:bg-[var(--abcpay-surface-2)]'
+                    }`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium truncate">{wallet.name}</span>
+                      <span className="block text-xs text-[var(--abcpay-muted)]">
+                        {labelForWallet(wallet)}
+                        {wallet.id === activeWallet.id ? ' · current' : ''}
+                      </span>
+                    </span>
+                    <span className="text-right shrink-0">
+                      <span className="block font-mono text-sm">{showBalance ? amount : '****'}</span>
+                      <span className="block text-xs text-[var(--abcpay-accent)]">Open →</span>
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
 
         <div className="grid grid-cols-2 gap-3">
           <div

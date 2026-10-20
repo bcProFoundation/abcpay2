@@ -79,7 +79,15 @@ export function defaultWalletCoinType(coin: SupportedCoin, isMultisig: boolean):
   return COIN_CONFIGS[coin].bip44CoinType;
 }
 
-export function xecRestoreCoinTypes(isMultisig: boolean): number[] {
-  if (isMultisig) return [XEC_NATIVE_COIN_TYPE, XEC_TOKEN_AWARE_COIN_TYPE];
-  return [XEC_TOKEN_AWARE_COIN_TYPE, XEC_NATIVE_COIN_TYPE, XEC_RAIPAY_COIN_TYPE];
+/** Every XEC derivation variant held under one seed — single-sig and multisig alike. */
+export const XEC_RESTORE_COIN_TYPES: readonly number[] = [
+  XEC_TOKEN_AWARE_COIN_TYPE,
+  XEC_NATIVE_COIN_TYPE,
+  XEC_RAIPAY_COIN_TYPE
+];
+
+export function xecRestoreCoinTypes(_isMultisig?: boolean): number[] {
+  // One seed can hold 1899, 899 and 145 wallets in both single-sig (44')
+  // and multisig (48') form; restore must scan all of them for either kind.
+  return [...XEC_RESTORE_COIN_TYPES];
 }
