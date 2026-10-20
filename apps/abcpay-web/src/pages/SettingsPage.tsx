@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom';
-import { useWallets } from '../context/WalletContext';
+import { useWallets, labelForWallet } from '../context/WalletContext';
 import { API_URL } from '../lib/api';
 
 export function SettingsPage() {
-  const { wallets, activeWallet, setActiveWallet, credentialsFor, removeWallet } = useWallets();
+  const { wallets, accounts, activeWallet, setActiveWallet, credentialsFor, removeWallet } =
+    useWallets();
 
   return (
     <div className="max-w-lg mx-auto">
@@ -23,24 +24,31 @@ export function SettingsPage() {
           Restore from recovery phrase
         </Link>
 
-        {wallets.length > 1 && (
-          <div className="p-4 bg-[var(--abcpay-surface)] rounded-xl">
-            <p className="font-medium mb-1">Wallets on this device</p>
+        {accounts.map(account => (
+          <div key={account.id} className="p-4 bg-[var(--abcpay-surface)] rounded-xl">
+            <p className="font-medium mb-1">Account</p>
             <p className="text-xs text-[var(--abcpay-muted)] mb-3">
-              The app uses one wallet at a time; switching will be redesigned later.
+              One seed · {account.wallets.length}{' '}
+              {account.wallets.length === 1 ? 'wallet' : 'wallets'} under it (1899, 899, 145,
+              single-sig and multisig). Pick one to make it current.
             </p>
             <div className="space-y-2">
-              {wallets.map(wallet => (
+              {account.wallets.map(wallet => (
                 <div key={wallet.id} className="flex items-center justify-between gap-3">
-                  <span className={`text-sm truncate ${wallet.id === activeWallet?.id ? 'font-medium' : ''}`}>
+                  <span
+                    className={`text-sm truncate ${wallet.id === activeWallet?.id ? 'font-medium' : ''}`}
+                  >
                     {wallet.name}
-                    {wallet.id === activeWallet?.id ? ' · current' : ''}
+                    <span className="block text-xs text-[var(--abcpay-muted)]">
+                      {labelForWallet(wallet)}
+                      {wallet.id === activeWallet?.id ? ' · current' : ''}
+                    </span>
                   </span>
                   {wallet.id !== activeWallet?.id && (
                     <button
                       type="button"
                       onClick={() => setActiveWallet(wallet.id)}
-                      className="text-xs px-3 py-1 rounded-full border border-white/10 text-[var(--abcpay-accent)]"
+                      className="text-xs px-3 py-1 rounded-full border border-white/10 text-[var(--abcpay-accent)] shrink-0"
                     >
                       Use
                     </button>
@@ -49,7 +57,7 @@ export function SettingsPage() {
               ))}
             </div>
           </div>
-        )}
+        ))}
 
         {wallets.map(wallet => {
           const creds = credentialsFor(wallet.id);
