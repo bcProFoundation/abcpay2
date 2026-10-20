@@ -77,6 +77,16 @@ body {
   border-color: color-mix(in srgb, var(--abcpay-accent) 55%, transparent);
 }
 
+.ptr-indicator.is-force .ptr-indicator-inner {
+  color: #ffffff;
+  border-color: color-mix(in srgb, #f59e0b 65%, transparent);
+}
+
+.ptr-indicator.is-done .ptr-indicator-inner {
+  color: #86efac;
+  border-color: color-mix(in srgb, #22c55e 45%, transparent);
+}
+
 .ptr-spinner {
   width: 1.05rem;
   height: 1.05rem;
