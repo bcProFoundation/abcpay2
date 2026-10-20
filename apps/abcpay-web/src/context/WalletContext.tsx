@@ -56,14 +56,14 @@ export interface SeedWallet {
   id: string;
   label: string;
   accounts: LocalAccount[];
-  /** Accounts merged by path+coin (network does not split an Account). */
+  /** Accounts under this Wallet, grouped by path + coin + network. */
   groupedAccounts: GroupedAccount[];
 }
 
 /** @deprecated Use SeedWallet */
 export type WalletAccount = SeedWallet;
 
-/** Same Account on one or more networks (livenet/testnet stay one Account). */
+/** One Account under one network (chain + livenet/testnet). */
 export interface GroupedAccount {
   key: string;
   accountPath: string;
@@ -71,7 +71,8 @@ export interface GroupedAccount {
   coinType?: number;
   m: number;
   n: number;
-  networks: string[];
+  /** Chain network: livenet or testnet. */
+  network: string;
   entries: LocalAccount[];
 }
 
@@ -83,6 +84,11 @@ export function labelForAccount(
 
 /** @deprecated Use labelForAccount */
 export const labelForWallet = labelForAccount;
+
+/** Short chain/network label for Account headers: eCash, Doge. */
+export function accountNetworkLabel(coin: SupportedCoin): string {
+  return coin === 'doge' ? 'Doge' : COIN_CONFIGS[coin].name;
+}
 
 /**
  * Title shown for an Account row: path (+ m-of-n). Never includes the server
@@ -107,13 +113,11 @@ export function groupAccountsByPath(accounts: LocalAccount[]): GroupedAccount[] 
   for (const account of accounts) {
     const accountPath =
       account.accountPath ?? accountPathFor({ coin: account.coin, coinType: account.coinType, n: account.n });
-    const key = `${accountPath}|${account.coin}|${account.m}|${account.n}`;
+    const network = account.network || 'livenet';
+    const key = `${accountPath}|${account.coin}|${account.m}|${account.n}|${network}`;
     const existing = byKey.get(key);
     if (existing) {
       existing.entries.push(account);
-      if (account.network && !existing.networks.includes(account.network)) {
-        existing.networks.push(account.network);
-      }
     } else {
       byKey.set(key, {
         key,
@@ -122,12 +126,32 @@ export function groupAccountsByPath(accounts: LocalAccount[]): GroupedAccount[] 
         coinType: account.coinType,
         m: account.m,
         n: account.n,
-        networks: account.network ? [account.network] : [],
+        network,
         entries: [account]
       });
     }
   }
   return [...byKey.values()];
+}
+
+/** Group Accounts under their chain network (eCash / Doge) for Wallet lists. */
+export function groupAccountsByNetwork(
+  groups: GroupedAccount[]
+): Array<{ networkLabel: string; coin: SupportedCoin; accounts: GroupedAccount[] }> {
+  const order: SupportedCoin[] = ['xec', 'doge'];
+  const byCoin = new Map<SupportedCoin, GroupedAccount[]>();
+  for (const group of groups) {
+    const list = byCoin.get(group.coin) ?? [];
+    list.push(group);
+    byCoin.set(group.coin, list);
+  }
+  return order
+    .filter(coin => byCoin.has(coin))
+    .map(coin => ({
+      networkLabel: accountNetworkLabel(coin),
+      coin,
+      accounts: byCoin.get(coin)!
+    }));
 }
 
 export function groupIntoSeedWallets(accounts: LocalAccount[]): SeedWallet[] {
@@ -490,12 +514,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           let status = wallet.status;
           let m = wallet.m;
           let n = wallet.n;
+          let network = wallet.network;
           if (auth) {
             try {
               const remote = await api.getWallet(auth);
               status = remote.status;
               m = remote.m;
               n = remote.n;
+              if (remote.network) network = remote.network;
             } catch {
               // keep local values
             }
@@ -508,7 +534,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             fiatBalance: `$${fiatAmount.toFixed(2)}`,
             status,
             m,
-            n
+            n,
+            network
           };
         } catch {
           return wallet;

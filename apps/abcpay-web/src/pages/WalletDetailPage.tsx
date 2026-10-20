@@ -10,7 +10,7 @@ import { intentFromProposal, mergeJoinRecordUntilComplete } from '../lib/proposa
 import { broadcastProposal, signAndMaybeBroadcast } from '../lib/tx';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
 import { hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
-import { accountDisplayTitle, labelForAccount } from '../context/WalletContext';
+import { accountDisplayTitle, accountNetworkLabel, labelForAccount } from '../context/WalletContext';
 
 const FALLBACK_POLL_MS = 8000;
 const LIVE_POLL_MS = 60000;
@@ -103,7 +103,7 @@ export function WalletDetailPage() {
           <MultisigBadge m={remote?.m ?? wallet.m} n={remote?.n ?? wallet.n} />
         </div>
         <h1 className="text-xl font-medium mb-2 font-mono">
-          Account ·{' '}
+          Account {accountNetworkLabel(wallet.coin)}{' '}
           {accountDisplayTitle({
             ...wallet,
             m: remote?.m ?? wallet.m,

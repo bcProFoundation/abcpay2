@@ -1,6 +1,11 @@
 import { Link } from 'react-router-dom';
 import { isTokenVisible, walletDisplayId } from '@bcpros/abcpay-wallet-core';
-import { useWallets, accountDisplayTitle, labelForAccount } from '../context/WalletContext';
+import {
+  useWallets,
+  accountDisplayTitle,
+  groupAccountsByNetwork,
+  labelForAccount
+} from '../context/WalletContext';
 import { API_URL } from '../lib/api';
 import { tokenLabel } from '../lib/token-format';
 
@@ -77,38 +82,48 @@ export function SettingsPage() {
             </p>
             <p className="text-xs text-[var(--abcpay-muted)] mb-3">
               {wallet.groupedAccounts.length}{' '}
-              {wallet.groupedAccounts.length === 1 ? 'Account' : 'Accounts'} (path + coin;
-              network does not split an Account). Pick one to make it current.
+              {wallet.groupedAccounts.length === 1 ? 'Account' : 'Accounts'} under their
+              network (HD path). Pick one to make it current.
             </p>
-            <div className="space-y-2">
-              {wallet.groupedAccounts.map(group => {
-                const entry = group.entries[0];
-                const isCurrent = group.entries.some(e => e.id === activeAccount?.id);
-                return (
-                  <div key={group.key} className="flex items-center justify-between gap-3">
-                    <span className={`text-sm truncate ${isCurrent ? 'font-medium' : ''}`}>
-                      <span className="font-mono">
-                        Account · {accountDisplayTitle({ ...entry, accountPath: group.accountPath })}
-                      </span>
-                      <span className="block text-xs text-[var(--abcpay-muted)]">
-                        {group.coin.toUpperCase()}
-                        {isCurrent ? ' · current' : ''}
-                        {' · '}
-                        {group.networks.join(' · ') || 'livenet'}
-                      </span>
-                    </span>
-                    {!isCurrent && (
-                      <button
-                        type="button"
-                        onClick={() => setActiveAccount(entry.id)}
-                        className="text-xs px-3 py-1 rounded-full border border-white/10 text-[var(--abcpay-accent)] shrink-0"
-                      >
-                        Use
-                      </button>
-                    )}
+            <div className="space-y-3">
+              {groupAccountsByNetwork(wallet.groupedAccounts).map(section => (
+                <div key={section.coin}>
+                  <p className="text-xs uppercase tracking-wide text-[var(--abcpay-muted)] mb-1">
+                    {section.networkLabel}
+                  </p>
+                  <div className="space-y-2">
+                    {section.accounts.map(group => {
+                      const entry = group.entries[0];
+                      const isCurrent = group.entries.some(e => e.id === activeAccount?.id);
+                      return (
+                        <div key={group.key} className="flex items-center justify-between gap-3">
+                          <span className={`text-sm truncate ${isCurrent ? 'font-medium' : ''}`}>
+                            <span className="font-mono">
+                              Account {section.networkLabel}{' '}
+                              {accountDisplayTitle({ ...entry, accountPath: group.accountPath })}
+                              {isCurrent ? ' · current' : ''}
+                            </span>
+                            {group.network !== 'livenet' && (
+                              <span className="block text-xs text-[var(--abcpay-muted)]">
+                                {group.network}
+                              </span>
+                            )}
+                          </span>
+                          {!isCurrent && (
+                            <button
+                              type="button"
+                              onClick={() => setActiveAccount(entry.id)}
+                              className="text-xs px-3 py-1 rounded-full border border-white/10 text-[var(--abcpay-accent)] shrink-0"
+                            >
+                              Use
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           </div>
         ))}

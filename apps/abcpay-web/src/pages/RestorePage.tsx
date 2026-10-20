@@ -20,6 +20,7 @@ import {
   useWallets,
   walletFromResponse,
   accountDisplayTitle,
+  accountNetworkLabel,
   type LocalAccount
 } from '../context/WalletContext';
 
@@ -231,10 +232,13 @@ export function RestorePage() {
                 className="w-full text-left p-4 bg-[var(--abcpay-surface)] rounded-xl hover:bg-[var(--abcpay-surface-2)]"
               >
                 <span className="font-medium font-mono">
-                  Account · {accountDisplayTitle(account)}
+                  Account {accountNetworkLabel(account.coin)} {accountDisplayTitle(account)}
                 </span>
                 <span className="block text-xs text-[var(--abcpay-muted)] mt-1">
-                  {account.coin.toUpperCase()} · {account.network ?? 'livenet'} · {account.status}
+                  {account.coin.toUpperCase()}
+                  {account.network && account.network !== 'livenet' ? ` · ${account.network}` : ''}
+                  {' · '}
+                  {account.status}
                 </span>
               </button>
             ))}
