@@ -1,7 +1,7 @@
 /* AbcPay Wallet Service Worker — PWA installability + Push & System Notifications */
 const CACHE_NAME = 'abcpay-shell-v2';
 const TOKEN_ICONS_CACHE = 'abcpay-token-icons-v1';
-const TOKEN_ICONS_ORIGIN = 'https://icons.etokens.cash';
+const TOKEN_ICON_PATH = /^\/token-icons\/(32|64|128|256|512)\/[a-f0-9]{64}\.png$/i;
 const PRECACHE_URLS = [
   '/manifest.webmanifest',
   '/abcpay-logo.svg',
@@ -46,8 +46,8 @@ self.addEventListener('fetch', event => {
 
   const url = new URL(req.url);
 
-  // Cashtab/eTokens icons — cache-first so token images survive reloads offline.
-  if (url.origin === TOKEN_ICONS_ORIGIN && /\.png$/i.test(url.pathname)) {
+  // Same-origin Cashtab icons (proxied) — cache-first for offline / Brave.
+  if (url.origin === self.location.origin && TOKEN_ICON_PATH.test(url.pathname)) {
     event.respondWith(
       caches.open(TOKEN_ICONS_CACHE).then(async cache => {
         const cached = await cache.match(req);

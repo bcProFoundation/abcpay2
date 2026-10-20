@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   TOKEN_ICON_FALLBACK,
   loadTokenIcon,
+  tokenIconUrl,
   type TokenIconSize
 } from '../lib/token-icons';
 
@@ -14,13 +15,16 @@ export function TokenIcon({
   size?: TokenIconSize;
   className?: string;
 }) {
-  const [src, setSrc] = useState(TOKEN_ICON_FALLBACK);
+  // Start with the same-origin proxy URL so Brave can paint immediately
+  // without waiting on a JS fetch that Shields may block.
+  const [src, setSrc] = useState(() => tokenIconUrl(tokenId, size));
 
   useEffect(() => {
     let cancelled = false;
-    setSrc(TOKEN_ICON_FALLBACK);
+    const direct = tokenIconUrl(tokenId, size);
+    setSrc(direct);
     void loadTokenIcon(tokenId, size).then(url => {
-      if (!cancelled) setSrc(url);
+      if (!cancelled && url !== direct) setSrc(url);
     });
     return () => {
       cancelled = true;
@@ -34,7 +38,10 @@ export function TokenIcon({
       className={`rounded-full shrink-0 object-cover bg-black/20 ${className}`}
       loading="lazy"
       decoding="async"
-      onError={() => setSrc(TOKEN_ICON_FALLBACK)}
+      referrerPolicy="no-referrer"
+      onError={() => {
+        if (src !== TOKEN_ICON_FALLBACK) setSrc(TOKEN_ICON_FALLBACK);
+      }}
     />
   );
 }
