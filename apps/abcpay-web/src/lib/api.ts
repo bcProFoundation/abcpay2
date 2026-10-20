@@ -107,6 +107,8 @@ export const api = {
   recoverWallets(opts: {
     copayerIds?: string[];
     xPubKeys?: string[];
+    /** Wallet (seed) ids — requestPubKeys shared by every Account under a seed. */
+    requestPubKeys?: string[];
   }): Promise<{ wallets: Array<JoinInfo & { copayerId: string }> }> {
     return apiFetch('/v1/wallets/recover/', {
       method: 'POST',

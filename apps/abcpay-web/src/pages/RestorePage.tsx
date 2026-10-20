@@ -6,26 +6,35 @@ import {
   XEC_TOKEN_AWARE_COIN_TYPE
 } from '@bcpros/abcpay-models';
 import {
-  accountIdForCredentials,
   createCredentials,
   isValidMnemonic,
   restoreCandidatesForMnemonic,
-  sortAccountWallets
+  seedIdForCredentials,
+  sortAccounts,
+  walletDisplayId
 } from '@bcpros/abcpay-wallet-core';
 import { api } from '../lib/api';
 import { saveCredentials } from '../lib/credentials-store';
 import { persistJoinRecord } from '../lib/proposal-verify';
-import { useWallets, walletFromResponse, type LocalWallet } from '../context/WalletContext';
+import {
+  useWallets,
+  walletFromResponse,
+  accountDisplayTitle,
+  accountNetworkLabel,
+  type LocalAccount
+} from '../context/WalletContext';
+
+const SEED_ID_RE = /^(02|03)[0-9a-fA-F]{64}$/;
 
 export function RestorePage() {
   const navigate = useNavigate();
-  const { addWallets } = useWallets();
+  const { addAccounts } = useWallets();
   const [mnemonic, setMnemonic] = useState('');
-  const [walletId, setWalletId] = useState('');
+  const [pin, setPin] = useState('');
   const [name, setName] = useState('Restored');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [restored, setRestored] = useState<LocalWallet[] | null>(null);
+  const [restored, setRestored] = useState<LocalAccount[] | null>(null);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -38,25 +47,37 @@ export function RestorePage() {
     setError('');
     setRestored(null);
     try {
-      // One seed = one Account. Derive every account variant under it
-      // (XEC 1899/899/145 and DOGE 3, single-sig 44' and multisig 48') and
-      // ask the server for all migrated wallets matching any of them.
+      // A seed is a Wallet. Derive every Account under it (XEC 1899/899/145
+      // and DOGE 3, single-sig 44' and multisig 48') and ask the server for
+      // all migrated Accounts matching any of them — by copayer, by xpub,
+      // and by Wallet (seed) id, which alone covers every Account.
       const candidates = restoreCandidatesForMnemonic(phrase);
       const byCopayer = new Map(candidates.map(c => [c.copayerId, c]));
       const byXpub = new Map(candidates.map(c => [c.xPubKey, c]));
+      const seedId = seedIdForCredentials(candidates[0]);
 
       const recovered = (
         await api.recoverWallets({
           copayerIds: [...byCopayer.keys()],
-          xPubKeys: [...byXpub.keys()]
+          xPubKeys: [...byXpub.keys()],
+          requestPubKeys: [seedId]
         })
       ).wallets;
-      const byWalletId = new Map(recovered.map(w => [w.id, w]));
-      let matches = [...byWalletId.values()];
+      const byAccountId = new Map(recovered.map(w => [w.id, w]));
+      let matches = [...byAccountId.values()];
 
-      const pinId = walletId.trim();
-      if (pinId) {
-        const info = await api.getJoinInfo(pinId);
+      const pinValue = pin.trim();
+      if (pinValue && SEED_ID_RE.test(pinValue)) {
+        // Wallet ID pointing at a seed: recover every Account under it.
+        const seeded = (
+          await api.recoverWallets({ requestPubKeys: [pinValue.toLowerCase()] })
+        ).wallets;
+        for (const info of seeded) {
+          if (!byAccountId.has(info.id)) matches.push(info);
+        }
+      } else if (pinValue) {
+        // Legacy internal account id — kept for compatibility, not shown in UI.
+        const info = await api.getJoinInfo(pinValue);
         const isMultisig = info.n > 1;
         let creds = createCredentials({
           coin: info.coin,
@@ -96,19 +117,19 @@ export function RestorePage() {
           }
         }
         byCopayer.set(creds.copayerId, creds);
-        // Merge the pinned wallet in — never discard the other accounts
-        // recovered from the same seed.
-        if (!byWalletId.has(info.id)) {
+        // Merge the pinned Account in — never discard the other Accounts
+        // recovered from the same Wallet (seed).
+        if (!byAccountId.has(info.id)) {
           matches.push({ ...info, copayerId: creds.copayerId });
         }
       }
 
       if (matches.length === 0) {
-        setError('No wallets found for this recovery phrase on the server');
+        setError('No Accounts found for this seed on the server');
         return;
       }
 
-      const restoredWallets: LocalWallet[] = [];
+      const restoredAccounts: LocalAccount[] = [];
       for (const info of matches) {
         const isMultisig = info.n > 1;
         const creds =
@@ -121,9 +142,9 @@ export function RestorePage() {
             coinType: info.coinType
           });
 
-        let walletResponse;
+        let accountResponse;
         try {
-          walletResponse = await api.getWallet({
+          accountResponse = await api.getWallet({
             walletId: info.id,
             copayerId: info.copayerId,
             requestPrivKey: creds.requestPrivKey
@@ -135,18 +156,16 @@ export function RestorePage() {
             xPubKey: creds.xPubKey,
             requestPubKey: creds.requestPubKey
           });
-          walletResponse = 'wallet' in joined ? joined.wallet : joined;
+          accountResponse = 'wallet' in joined ? joined.wallet : joined;
         }
 
-        // If the server copayer record uses a different xpub than the
-        // copayerId lookup suggested, prefer the candidate that matches it.
-        const matchedCopayer = walletResponse.copayers?.find(c => c.id === info.copayerId);
+        const matchedCopayer = accountResponse.copayers?.find(c => c.id === info.copayerId);
         const effectiveCreds =
           (matchedCopayer && byXpub.get(matchedCopayer.xPubKey)) || creds;
 
         persistJoinRecord(info.id, [
           effectiveCreds.xPubKey,
-          ...(walletResponse.copayers ?? []).map(c => c.xPubKey)
+          ...(accountResponse.copayers ?? []).map(c => c.xPubKey)
         ]);
         saveCredentials(
           info.id,
@@ -170,17 +189,17 @@ export function RestorePage() {
             }
           })
         );
-        restoredWallets.push(
-          walletFromResponse(walletResponse, info.copayerId, name, {
+        restoredAccounts.push(
+          walletFromResponse(accountResponse, info.copayerId, name, {
             creds: effectiveCreds,
             coinType: effectiveCreds.coinType ?? info.coinType,
-            accountId: accountIdForCredentials(effectiveCreds)
+            seedId: seedIdForCredentials(effectiveCreds)
           })
         );
       }
 
-      const sorted = sortAccountWallets(restoredWallets);
-      addWallets(sorted);
+      const sorted = sortAccounts(restoredAccounts);
+      addAccounts(sorted);
       setRestored(sorted);
     } catch (err) {
       setError((err as Error).message);
@@ -190,31 +209,36 @@ export function RestorePage() {
   };
 
   if (restored) {
+    const seedId = restored[0]?.seedId;
     return (
       <div className="max-w-lg mx-auto">
         <header className="px-4 py-4 border-b border-white/10">
-          <h1 className="text-lg font-medium text-center">Account Restored</h1>
+          <h1 className="text-lg font-medium text-center">Wallet Restored</h1>
         </header>
         <div className="px-4 py-6 space-y-4">
           <p className="text-sm text-[var(--abcpay-muted)]">
-            One seed is one Account. We recovered {restored.length}{' '}
-            {restored.length === 1 ? 'wallet' : 'wallets'} under this seed — single-sig and
-            multisig, across every derivation (1899, 899, 145, DOGE).
+            A seed is a Wallet{seedId ? ` (${walletDisplayId(seedId)})` : ''}. We recovered{' '}
+            {restored.length} {restored.length === 1 ? 'Account' : 'Accounts'} under it —
+            single-sig and multisig, across every derivation (1899, 899, 145, DOGE). Each
+            Account shows its path and coin; tokens live under each Account and are hidden
+            until you enable them in Settings.
           </p>
           <div className="space-y-2">
-            {restored.map(wallet => (
+            {restored.map(account => (
               <button
-                key={wallet.id}
+                key={account.id}
                 type="button"
-                onClick={() => navigate(`/wallet/${wallet.id}`)}
+                onClick={() => navigate(`/wallet/${account.id}`)}
                 className="w-full text-left p-4 bg-[var(--abcpay-surface)] rounded-xl hover:bg-[var(--abcpay-surface-2)]"
               >
-                <span className="font-medium">{wallet.name}</span>
+                <span className="font-medium font-mono">
+                  Account {accountNetworkLabel(account.coin)} {accountDisplayTitle(account)}
+                </span>
                 <span className="block text-xs text-[var(--abcpay-muted)] mt-1">
-                  {wallet.coin.toUpperCase()}
-                  {wallet.coinType ? ` · ${wallet.coinType}` : ''}
-                  {wallet.n > 1 ? ` · ${wallet.m}-of-${wallet.n} multisig` : ' · single-sig'} ·{' '}
-                  {wallet.status}
+                  {account.coin.toUpperCase()}
+                  {account.network && account.network !== 'livenet' ? ` · ${account.network}` : ''}
+                  {' · '}
+                  {account.status}
                 </span>
               </button>
             ))}
@@ -224,7 +248,7 @@ export function RestorePage() {
             onClick={() => navigate('/')}
             className="w-full py-4 bg-[var(--abcpay-accent)] rounded-xl font-medium"
           >
-            Go to Account
+            Go to Wallet
           </button>
         </div>
       </div>
@@ -234,14 +258,13 @@ export function RestorePage() {
   return (
     <div className="max-w-lg mx-auto">
       <header className="px-4 py-4 border-b border-white/10">
-        <h1 className="text-lg font-medium text-center">Restore Account</h1>
+        <h1 className="text-lg font-medium text-center">Restore Wallet</h1>
       </header>
       <form onSubmit={onSubmit} className="px-4 py-6 space-y-5">
         <p className="text-sm text-[var(--abcpay-muted)]">
-          Enter your 12-word recovery phrase. One seed is one Account: we recover{' '}
-          <strong>all</strong> wallets under it — XEC 1899, 899 and RaiPay 145, single-sig and
-          multisig, plus DOGE — from the migrated server database. No wallet ID required. Private
-          keys stay on this device.
+          Enter your 12-word seed phrase. A seed is a Wallet: we recover <strong>all</strong>{' '}
+          Accounts under it — XEC 1899, 899 and RaiPay 145, single-sig and multisig, plus DOGE —
+          from the migrated server database. Private keys stay on this device.
         </p>
         <textarea
           value={mnemonic}
@@ -257,11 +280,11 @@ export function RestorePage() {
           className="w-full px-4 py-3 bg-[var(--abcpay-surface)] rounded-xl border border-white/10 outline-none focus:border-[var(--abcpay-accent)]"
         />
         <details className="text-sm text-[var(--abcpay-muted)]">
-          <summary className="cursor-pointer">Advanced: pin a wallet ID</summary>
+          <summary className="cursor-pointer">Advanced: pin a Wallet (seed) ID</summary>
           <input
-            value={walletId}
-            onChange={e => setWalletId(e.target.value)}
-            placeholder="Optional wallet ID"
+            value={pin}
+            onChange={e => setPin(e.target.value)}
+            placeholder="Wallet (seed) ID — or a legacy account ID"
             className="mt-3 w-full px-4 py-3 bg-[var(--abcpay-surface)] rounded-xl border border-white/10 font-mono text-sm outline-none focus:border-[var(--abcpay-accent)]"
           />
         </details>
@@ -271,7 +294,7 @@ export function RestorePage() {
           disabled={loading}
           className="w-full py-4 bg-[var(--abcpay-accent)] rounded-xl font-medium disabled:opacity-50"
         >
-          {loading ? 'Restoring all wallets…' : 'Restore Account'}
+          {loading ? 'Restoring all Accounts…' : 'Restore Wallet'}
         </button>
       </form>
     </div>

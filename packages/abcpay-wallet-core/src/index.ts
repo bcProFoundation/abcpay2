@@ -4,6 +4,7 @@ export * from './script';
 export * from './derivation';
 export * from './keys';
 export * from './restore';
+export * from './token-visibility';
 export * from './address';
 export * from './tx';
 export * from './coinselect';

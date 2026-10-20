@@ -93,7 +93,7 @@ export function CreateWalletPage() {
       <div className="max-w-lg mx-auto px-4 py-8">
         <h1 className="text-lg font-medium text-center mb-4">Wallet Created</h1>
         <p className="text-sm text-[var(--abcpay-muted)] mb-4">
-          Share this invitation secret with your copayers so they can join the shared wallet:
+          Share this invitation secret with your copayers so they can join the shared Account:
         </p>
         <div className="p-4 bg-[var(--abcpay-surface)] rounded-xl font-mono text-xs break-all mb-6">
           {joinSecret}
@@ -108,7 +108,7 @@ export function CreateWalletPage() {
           onClick={() => navigate(`/wallet/${createdWalletId}`)}
           className="w-full py-4 bg-[var(--abcpay-accent)] rounded-xl font-medium"
         >
-          Go to Wallet
+          Go to Account
         </button>
       </div>
     );
@@ -121,7 +121,11 @@ export function CreateWalletPage() {
       </header>
 
       <form onSubmit={handleSubmit(onSubmit)} className="px-4 py-6 space-y-5">
-        <Field label="Wallet Name" name="name" control={control} placeholder="My Wallet" />
+        <p className="text-sm text-[var(--abcpay-muted)]">
+          Creates a new Wallet (a fresh seed) with its first Account below. The Account is
+          identified by its derivation path and coin.
+        </p>
+        <Field label="Account Name" name="name" control={control} placeholder="My Account" />
         <Field label="Your Name" name="copayerName" control={control} placeholder="Alice" />
 
         <div>
@@ -183,7 +187,7 @@ export function CreateWalletPage() {
                   />
                 )}
               />
-              <span>Shared Wallet (Multisig)</span>
+              <span>Shared Account (Multisig)</span>
             </label>
           </div>
         )}

@@ -42,7 +42,7 @@ export function JoinWalletPage() {
 
       const localWallet = walletFromBwc(
         result.walletId,
-        'Shared Wallet',
+        'Shared Account',
         data.coin,
         0,
         0,
@@ -63,12 +63,13 @@ export function JoinWalletPage() {
   return (
     <div className="max-w-lg mx-auto">
       <header className="px-4 py-4 border-b border-white/10">
-        <h1 className="text-lg font-medium text-center">Join Shared Wallet</h1>
+        <h1 className="text-lg font-medium text-center">Join Shared Account</h1>
       </header>
 
       <form onSubmit={handleSubmit(onSubmit)} className="px-4 py-6 space-y-5">
         <p className="text-sm text-[var(--abcpay-muted)]">
-          Paste the invitation secret shared by the wallet creator.
+          Paste the invitation secret shared by the Account creator. The shared Account will be
+          added under your Wallet (seed).
         </p>
 
         <div>
@@ -139,7 +140,7 @@ export function JoinWalletPage() {
           disabled={loading}
           className="w-full py-4 bg-[var(--abcpay-accent)] rounded-xl font-medium hover:opacity-90 disabled:opacity-50"
         >
-          {loading ? 'Joining...' : 'Join Wallet'}
+          {loading ? 'Joining...' : 'Join Account'}
         </button>
       </form>
     </div>

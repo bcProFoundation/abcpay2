@@ -1,19 +1,29 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { SupportedCoin, WalletResponse } from '@bcpros/abcpay-models';
+import type { SupportedCoin, TokenBalance, WalletResponse } from '@bcpros/abcpay-models';
 import { COIN_CONFIGS, defaultWalletCoinType } from '@bcpros/abcpay-models';
 import type { WalletCredentials } from '@bcpros/abcpay-wallet-core';
 import {
-  accountIdForCredentials,
   accountLabel,
+  accountPathFor,
   createCredentials,
-  groupWalletsByAccount,
-  sortAccountWallets
+  DEFAULT_TOKEN_VISIBILITY,
+  groupAccountsByWallet,
+  seedIdForCredentials,
+  sortAccounts,
+  withTokenVisibility,
+  type TokenVisibilitySettings
 } from '@bcpros/abcpay-wallet-core';
 import { getCredentials, saveCredentials } from '../lib/credentials-store';
 import { getWalletBalance as getBalanceFromStored } from '../lib/bwc';
 import { api, type AuthContext } from '../lib/api';
 
-export interface LocalWallet {
+/**
+ * One Account = one derivation (path + coin) under a Wallet (seed).
+ * `id` is the internal server account id used for API routing/auth only —
+ * it is never shown to the user. The user-facing identity is the Wallet
+ * (seedId) and the Account path.
+ */
+export interface LocalAccount {
   id: string;
   name: string;
   coin: SupportedCoin;
@@ -26,33 +36,116 @@ export interface LocalWallet {
   fiatBalance: string;
   status: string;
   secret?: string;
-  /** Derivation variant of this account-wallet, e.g. 1899 / 899 / 145 (XEC) or 3 (DOGE). */
+  /** Derivation variant, e.g. 1899 / 899 / 145 (XEC) or 3 (DOGE). */
   coinType?: number;
-  /**
-   * Seed-level Account identity (requestPubKey at m/1'/0). Every wallet
-   * restored from the same mnemonic shares it — one seed = one Account,
-   * each derivation variant underneath is an account-wallet.
-   */
+  /** Wallet (seed) identity — requestPubKey at m/1'/0, shared by all Accounts of one seed. */
+  seedId?: string;
+  /** Account derivation root, e.g. m/48'/899'/0'. */
+  accountPath?: string;
+  network?: string;
+  /** @deprecated Renamed to seedId (seed = Wallet). */
   accountId?: string;
 }
 
-/** One seed (Account) and every account-wallet recovered under it. */
-export interface WalletAccount {
+/** @deprecated Use LocalAccount — a "wallet" in the UI is now the seed. */
+export type LocalWallet = LocalAccount;
+
+/** One Wallet (seed) and every Account recovered under it. */
+export interface SeedWallet {
+  /** Wallet (seed) id — points to the seed, not a server account record. */
   id: string;
   label: string;
-  wallets: LocalWallet[];
+  accounts: LocalAccount[];
+  /** Accounts under this Wallet, grouped by path + coin + network. */
+  groupedAccounts: GroupedAccount[];
 }
 
-export function labelForWallet(wallet: Pick<LocalWallet, 'coin' | 'coinType' | 'm' | 'n'>): string {
-  return accountLabel(wallet);
+/** @deprecated Use SeedWallet */
+export type WalletAccount = SeedWallet;
+
+/** One Account under one network (chain + livenet/testnet). */
+export interface GroupedAccount {
+  key: string;
+  accountPath: string;
+  coin: SupportedCoin;
+  coinType?: number;
+  m: number;
+  n: number;
+  /** Chain network: livenet or testnet. */
+  network: string;
+  entries: LocalAccount[];
 }
 
-export function groupWalletsIntoAccounts(wallets: LocalWallet[]): WalletAccount[] {
-  return groupWalletsByAccount(wallets).map(group => ({
+export function labelForAccount(
+  account: Pick<LocalAccount, 'coin' | 'coinType' | 'm' | 'n' | 'accountPath' | 'network'>
+): string {
+  return accountLabel(account);
+}
+
+/** @deprecated Use labelForAccount */
+export const labelForWallet = labelForAccount;
+
+/** Short chain/network label for Account headers: eCash, Doge. */
+export function accountNetworkLabel(coin: SupportedCoin): string {
+  return coin === 'doge' ? 'Doge' : COIN_CONFIGS[coin].name;
+}
+
+/**
+ * Title shown for an Account row: path (+ m-of-n). Never includes the server
+ * wallet record id — Wallet ids belong only at the Wallet (seed) level.
+ */
+export function accountDisplayTitle(
+  account: Pick<LocalAccount, 'coin' | 'coinType' | 'm' | 'n' | 'accountPath'>
+): string {
+  const path =
+    account.accountPath ??
+    accountPathFor({
+      coin: account.coin,
+      coinType: account.coinType,
+      m: account.m,
+      n: account.n
+    });
+  return account.n > 1 ? `${path} · ${account.m}-of-${account.n}` : path;
+}
+
+export function groupAccountsByPath(accounts: LocalAccount[]): GroupedAccount[] {
+  const byKey = new Map<string, GroupedAccount>();
+  for (const account of accounts) {
+    const accountPath =
+      account.accountPath ?? accountPathFor({ coin: account.coin, coinType: account.coinType, n: account.n });
+    const network = account.network || 'livenet';
+    const key = `${accountPath}|${account.coin}|${account.m}|${account.n}|${network}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.entries.push(account);
+    } else {
+      byKey.set(key, {
+        key,
+        accountPath,
+        coin: account.coin,
+        coinType: account.coinType,
+        m: account.m,
+        n: account.n,
+        network,
+        entries: [account]
+      });
+    }
+  }
+  return [...byKey.values()];
+}
+
+export function groupIntoSeedWallets(accounts: LocalAccount[]): SeedWallet[] {
+  return groupAccountsByWallet(accounts).map(group => ({
     id: group.id,
-    label: group.wallets.length > 1 ? `Account · ${group.wallets.length} wallets` : 'Account',
-    wallets: group.wallets
+    label: 'Wallet',
+    accounts: group.accounts,
+    groupedAccounts: groupAccountsByPath(group.accounts)
   }));
+}
+
+/** @deprecated Use groupIntoSeedWallets */
+export function groupWalletsIntoAccounts(wallets: LocalAccount[]): SeedWallet[] {
+  return groupIntoSeedWallets(wallets);
 }
 
 export interface StoredCredentials extends WalletCredentials {
@@ -61,35 +154,90 @@ export interface StoredCredentials extends WalletCredentials {
 }
 
 interface WalletContextValue {
-  wallets: LocalWallet[];
-  /** Wallets grouped by seed — one seed = one Account with many account-wallets. */
-  accounts: WalletAccount[];
-  activeWallet: LocalWallet | undefined;
+  /** Flat Accounts (one per derivation/server record) across all Wallets. */
+  accounts: LocalAccount[];
+  /** @deprecated Use accounts — kept for pages not yet migrated. */
+  wallets: LocalAccount[];
+  /** Accounts grouped by Wallet (seed). One seed = one Wallet. */
+  seedWallets: SeedWallet[];
+  /** @deprecated Use seedWallets */
+  walletGroups: SeedWallet[];
+  activeAccount: LocalAccount | undefined;
+  /** @deprecated Use activeAccount */
+  activeWallet: LocalAccount | undefined;
+  activeAccountId: string | null;
+  /** @deprecated Use activeAccountId */
   activeWalletId: string | null;
+  setActiveAccount: (id: string) => void;
+  /** @deprecated Use setActiveAccount */
   setActiveWallet: (id: string) => void;
-  addWallet: (wallet: LocalWallet) => void;
-  addWallets: (wallets: LocalWallet[]) => void;
+  addAccount: (account: LocalAccount) => void;
+  /** @deprecated Use addAccount */
+  addWallet: (account: LocalAccount) => void;
+  addAccounts: (accounts: LocalAccount[]) => void;
+  /** @deprecated Use addAccounts */
+  addWallets: (accounts: LocalAccount[]) => void;
+  removeAccount: (id: string) => void;
+  /** @deprecated Use removeAccount */
   removeWallet: (id: string) => void;
   refreshBalances: () => Promise<void>;
   showBalance: boolean;
   setShowBalance: (show: boolean) => void;
   totalFiatBalance: string;
-  getWalletCredentials: (walletId: string) => string | null;
-  credentialsFor: (walletId: string) => StoredCredentials | undefined;
-  authFor: (walletId: string) => AuthContext | undefined;
+  getWalletCredentials: (accountId: string) => string | null;
+  credentialsFor: (accountId: string) => StoredCredentials | undefined;
+  authFor: (accountId: string) => AuthContext | undefined;
   pendingMnemonic: string | null;
   setPendingMnemonic: (mnemonic: string | null) => void;
+  /** App-level token visibility (per app, not per account). Tokens hidden by default. */
+  tokenVisibility: TokenVisibilitySettings;
+  setTokenVisible: (tokenId: string, visible: boolean) => void;
+  /** Every token held by any Account on this device, for the Settings picker. */
+  knownTokens: TokenBalance[];
+  tokensByAccount: Record<string, TokenBalance[]>;
 }
 
 const WalletContext = createContext<WalletContextValue | null>(null);
 
 const WALLETS_KEY = 'abcpay_v2_wallets';
 const ACTIVE_WALLET_KEY = 'abcpay_v2_active_wallet';
+const TOKEN_VISIBILITY_KEY = 'abcpay_token_visibility_v1';
+const KNOWN_TOKENS_KEY = 'abcpay_known_tokens_v1';
 
-function loadWallets(): LocalWallet[] {
+function loadWallets(): LocalAccount[] {
   try {
     const raw = localStorage.getItem(WALLETS_KEY);
-    return raw ? (JSON.parse(raw) as LocalWallet[]) : [];
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as LocalAccount[];
+    // Migrate pre-rename records: accountId was the seed id.
+    return parsed.map(w => ({
+      ...w,
+      seedId: w.seedId ?? w.accountId,
+      accountPath:
+        w.accountPath ??
+        accountPathFor({ coin: w.coin, coinType: w.coinType, n: w.n }),
+      network: w.network ?? 'livenet'
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function loadTokenVisibility(): TokenVisibilitySettings {
+  try {
+    const raw = localStorage.getItem(TOKEN_VISIBILITY_KEY);
+    if (!raw) return DEFAULT_TOKEN_VISIBILITY;
+    const parsed = JSON.parse(raw) as TokenVisibilitySettings;
+    return { visibleTokenIds: Array.isArray(parsed.visibleTokenIds) ? parsed.visibleTokenIds : [] };
+  } catch {
+    return DEFAULT_TOKEN_VISIBILITY;
+  }
+}
+
+function loadKnownTokens(): TokenBalance[] {
+  try {
+    const raw = localStorage.getItem(KNOWN_TOKENS_KEY);
+    return raw ? (JSON.parse(raw) as TokenBalance[]) : [];
   } catch {
     return [];
   }
@@ -163,7 +311,7 @@ function parseStoredCredentials(walletId: string, wallets: LocalWallet[]): Store
   }
 }
 
-function storedAccountId(walletId: string): string | undefined {
+function storedSeedId(walletId: string): string | undefined {
   const raw = getCredentials(walletId);
   if (!raw) return undefined;
   try {
@@ -185,12 +333,26 @@ function storedCoinType(walletId: string): number | undefined {
   }
 }
 
+function storedAccountPath(walletId: string): string | undefined {
+  const raw = getCredentials(walletId);
+  if (!raw) return undefined;
+  try {
+    const stored = JSON.parse(raw) as { keys?: { accountPath?: string } };
+    return stored.keys?.accountPath;
+  } catch {
+    return undefined;
+  }
+}
+
 export function WalletProvider({ children }: { children: ReactNode }) {
-  const [wallets, setWallets] = useState<LocalWallet[]>(loadWallets);
+  const [wallets, setWallets] = useState<LocalAccount[]>(loadWallets);
   const [activeWalletId, setActiveWalletId] = useState<string | null>(() => localStorage.getItem(ACTIVE_WALLET_KEY));
   const [showBalance, setShowBalance] = useState(true);
   const [totalFiatBalance, setTotalFiatBalance] = useState('$0.00');
   const [pendingMnemonic, setPendingMnemonic] = useState<string | null>(null);
+  const [tokenVisibility, setTokenVisibility] = useState<TokenVisibilitySettings>(loadTokenVisibility);
+  const [knownTokens, setKnownTokens] = useState<TokenBalance[]>(loadKnownTokens);
+  const [tokensByAccount, setTokensByAccount] = useState<Record<string, TokenBalance[]>>({});
 
   useEffect(() => {
     localStorage.setItem(WALLETS_KEY, JSON.stringify(wallets));
@@ -201,7 +363,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     else localStorage.removeItem(ACTIVE_WALLET_KEY);
   }, [activeWalletId]);
 
-  // Single-wallet app: keep exactly one active wallet (default: the newest).
+  useEffect(() => {
+    localStorage.setItem(TOKEN_VISIBILITY_KEY, JSON.stringify(tokenVisibility));
+  }, [tokenVisibility]);
+
+  useEffect(() => {
+    localStorage.setItem(KNOWN_TOKENS_KEY, JSON.stringify(knownTokens));
+  }, [knownTokens]);
+
+  const setTokenVisible = useCallback((tokenId: string, visible: boolean) => {
+    setTokenVisibility(prev => withTokenVisibility(prev, tokenId, visible));
+  }, []);
+
+  // Keep exactly one active Account (default: the newest).
   useEffect(() => {
     if (wallets.length === 0) {
       if (activeWalletId) setActiveWalletId(null);
@@ -218,7 +392,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const activeWallet = wallets.find(wallet => wallet.id === activeWalletId) ?? wallets[wallets.length - 1];
 
-  const addWallet = useCallback((wallet: LocalWallet) => {
+  const addWallet = useCallback((wallet: LocalAccount) => {
     setWallets(prev =>
       prev.some(w => w.id === wallet.id)
         ? prev.map(w => (w.id === wallet.id ? { ...w, ...wallet } : w))
@@ -227,7 +401,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setActiveWalletId(wallet.id);
   }, []);
 
-  const addWallets = useCallback((incoming: LocalWallet[]) => {
+  const addWallets = useCallback((incoming: LocalAccount[]) => {
     if (incoming.length === 0) return;
     setWallets(prev => {
       const merged = [...prev];
@@ -238,17 +412,25 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
       return merged;
     });
-    // Land on the first account-wallet in stable order; Home shows them all.
-    setActiveWalletId(sortAccountWallets(incoming)[0].id);
+    // Land on the first Account in stable order; Home shows the whole Wallet.
+    setActiveWalletId(sortAccounts(incoming)[0].id);
   }, []);
 
-  const accounts = groupWalletsIntoAccounts(
-    wallets.map(wallet => ({
-      ...wallet,
-      accountId: wallet.accountId ?? storedAccountId(wallet.id),
-      coinType: wallet.coinType ?? storedCoinType(wallet.id)
-    }))
-  );
+  const enrichedAccounts = wallets.map(wallet => ({
+    ...wallet,
+    seedId: wallet.seedId ?? wallet.accountId ?? storedSeedId(wallet.id),
+    coinType: wallet.coinType ?? storedCoinType(wallet.id),
+    accountPath:
+      wallet.accountPath ??
+      storedAccountPath(wallet.id) ??
+      accountPathFor({
+        coin: wallet.coin,
+        coinType: wallet.coinType ?? storedCoinType(wallet.id),
+        n: wallet.n
+      }),
+    network: wallet.network ?? 'livenet'
+  }));
+  const seedWallets = groupIntoSeedWallets(enrichedAccounts);
 
   const removeWallet = useCallback((id: string) => {
     setWallets(prev => prev.filter(w => w.id !== id));
@@ -272,6 +454,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const refreshBalances = useCallback(async () => {
     let totalFiat = 0;
+    const nextTokensByAccount: Record<string, TokenBalance[]> = {};
+    const discovered = new Map<string, TokenBalance>();
 
     const updated = await Promise.all(
       wallets.map(async wallet => {
@@ -285,6 +469,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
               const remoteBalance = await api.getBalance(auth);
               balance = remoteBalance.totalAmount;
               tokenCount = remoteBalance.tokens?.length ?? 0;
+              nextTokensByAccount[wallet.id] = remoteBalance.tokens ?? [];
+              for (const token of remoteBalance.tokens ?? []) {
+                if (!discovered.has(token.tokenId)) discovered.set(token.tokenId, token);
+              }
             } catch {
               const creds = getCredentials(wallet.id);
               if (creds) {
@@ -306,12 +494,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           let status = wallet.status;
           let m = wallet.m;
           let n = wallet.n;
+          let network = wallet.network;
           if (auth) {
             try {
               const remote = await api.getWallet(auth);
               status = remote.status;
               m = remote.m;
               n = remote.n;
+              if (remote.network) network = remote.network;
             } catch {
               // keep local values
             }
@@ -324,7 +514,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             fiatBalance: `$${fiatAmount.toFixed(2)}`,
             status,
             m,
-            n
+            n,
+            network
           };
         } catch {
           return wallet;
@@ -334,6 +525,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     setWallets(updated);
     setTotalFiatBalance(`$${totalFiat.toFixed(2)}`);
+    if (Object.keys(nextTokensByAccount).length > 0) {
+      setTokensByAccount(prev => ({ ...prev, ...nextTokensByAccount }));
+      setKnownTokens(prev => {
+        const merged = new Map(prev.map(t => [t.tokenId, t]));
+        for (const token of discovered.values()) merged.set(token.tokenId, token);
+        return [...merged.values()];
+      });
+    }
   }, [wallets, authFor]);
 
   const walletIds = wallets.map(wallet => wallet.id).join(',');
@@ -348,13 +547,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   return (
     <WalletContext.Provider
       value={{
-        wallets,
-        accounts,
+        accounts: enrichedAccounts,
+        wallets: enrichedAccounts,
+        seedWallets,
+        walletGroups: seedWallets,
+        activeAccount: activeWallet,
         activeWallet,
+        activeAccountId: activeWalletId,
         activeWalletId,
+        setActiveAccount: setActiveWallet,
         setActiveWallet,
+        addAccount: addWallet,
         addWallet,
+        addAccounts: addWallets,
         addWallets,
+        removeAccount: removeWallet,
         removeWallet,
         refreshBalances,
         showBalance,
@@ -364,7 +571,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         credentialsFor,
         authFor,
         pendingMnemonic,
-        setPendingMnemonic
+        setPendingMnemonic,
+        tokenVisibility,
+        setTokenVisible,
+        knownTokens,
+        tokensByAccount
       }}
     >
       {children}
@@ -388,8 +599,9 @@ export function walletFromBwc(
   copayerName: string,
   status: string,
   secret?: string,
-  extras?: { coinType?: number; accountId?: string }
-): LocalWallet {
+  extras?: { coinType?: number; seedId?: string; accountId?: string; accountPath?: string; network?: string }
+): LocalAccount {
+  const coinType = extras?.coinType;
   return {
     id: walletId,
     name,
@@ -403,8 +615,10 @@ export function walletFromBwc(
     fiatBalance: '$0.00',
     status,
     secret,
-    coinType: extras?.coinType,
-    accountId: extras?.accountId
+    coinType,
+    seedId: extras?.seedId ?? extras?.accountId,
+    accountPath: extras?.accountPath ?? accountPathFor({ coin, coinType, n }),
+    network: extras?.network ?? 'livenet'
   };
 }
 
@@ -412,8 +626,9 @@ export function walletFromResponse(
   response: WalletResponse,
   copayerId: string,
   copayerName: string,
-  extras?: { coinType?: number; accountId?: string; creds?: WalletCredentials }
-): LocalWallet {
+  extras?: { coinType?: number; seedId?: string; accountId?: string; creds?: WalletCredentials }
+): LocalAccount {
+  const coinType = extras?.coinType ?? extras?.creds?.coinType ?? response.coinType;
   return {
     id: response.id,
     name: response.name,
@@ -426,8 +641,14 @@ export function walletFromResponse(
     tokenCount: 0,
     fiatBalance: '$0.00',
     status: response.status,
-    coinType: extras?.coinType ?? extras?.creds?.coinType ?? response.coinType,
-    accountId:
-      extras?.accountId ?? (extras?.creds ? accountIdForCredentials(extras.creds) : undefined)
+    coinType,
+    seedId:
+      extras?.seedId ??
+      extras?.accountId ??
+      (extras?.creds ? seedIdForCredentials(extras.creds) : undefined),
+    accountPath:
+      extras?.creds?.accountPath ??
+      accountPathFor({ coin: response.coin, coinType, n: response.n }),
+    network: response.network
   };
 }
