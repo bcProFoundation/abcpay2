@@ -86,55 +86,48 @@ export function EyeToggle({ show, onToggle }: { show: boolean; onToggle: () => v
 }
 
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
+
+type AppTab = 'home' | 'scan' | 'settings';
+
+function activeTab(pathname: string): AppTab {
+  if (pathname.startsWith('/settings') || pathname.startsWith('/restore')) return 'settings';
+  if (pathname.startsWith('/scan')) return 'scan';
+  return 'home';
+}
 
 export function TabBar() {
   const location = useLocation();
-  const tabs = [
-    { icon: 'home', label: 'Home', to: '/' },
-    { icon: 'scan', label: 'Scan', to: '/scan' },
-    { icon: 'settings', label: 'Settings', to: '/settings' }
+  const tab = activeTab(location.pathname);
+  const tabs: { id: AppTab; icon: string; label: string; to: string }[] = [
+    { id: 'home', icon: 'home', label: 'Home', to: '/' },
+    { id: 'scan', icon: 'scan', label: 'Scan', to: '/scan' },
+    { id: 'settings', icon: 'settings', label: 'Settings', to: '/settings' }
   ];
 
-  return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-[var(--abcpay-surface)] border-t border-white/10 safe-area-bottom">
-      <div className="max-w-lg mx-auto flex justify-around py-2">
-        {tabs.map(tab => (
-          <TabItem
-            key={tab.to}
-            icon={tab.icon}
-            label={tab.label}
-            to={tab.to}
-            active={location.pathname === tab.to}
-          />
+  const nav = (
+    <nav className="glass-nav" aria-label="Main">
+      <div className={`glass-nav-shell glass-nav-shell--${tab}`}>
+        <span className="glass-nav-blob" aria-hidden="true" />
+        {tabs.map(item => (
+          <Link
+            key={item.to}
+            to={item.to}
+            className={`glass-nav-btn${tab === item.id ? ' is-active' : ''}`}
+            aria-current={tab === item.id ? 'page' : undefined}
+          >
+            <TabIcon name={item.icon} />
+            <span>{item.label}</span>
+          </Link>
         ))}
       </div>
     </nav>
   );
-}
 
-function TabItem({
-  icon,
-  label,
-  to,
-  active = false
-}: {
-  icon: string;
-  label: string;
-  to: string;
-  active?: boolean;
-}) {
-  return (
-    <Link
-      to={to}
-      className={`flex flex-col items-center gap-1 px-4 py-1 text-xs transition-colors ${
-        active ? 'text-[var(--abcpay-accent)]' : 'text-[var(--abcpay-muted)]'
-      }`}
-    >
-      <TabIcon name={icon} />
-      {label}
-    </Link>
-  );
+  /* Body portal: iOS treats position:fixed inside #root as in-flow when a
+     descendant uses backdrop-filter (same fix as WLotus). */
+  return createPortal(nav, document.body);
 }
 
 function TabIcon({ name }: { name: string }) {

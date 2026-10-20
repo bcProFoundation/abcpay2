@@ -8,12 +8,10 @@ import { useNotifications } from '../context/NotificationContext';
 import { api } from '../lib/api';
 import { intentFromProposal, mergeJoinRecordUntilComplete } from '../lib/proposal-verify';
 import { broadcastProposal, signAndMaybeBroadcast } from '../lib/tx';
+import { TokenIcon } from '../components/TokenIcon';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
 import { formatAmount, hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
 import { accountDisplayTitle, accountNetworkLabel, labelForAccount } from '../context/WalletContext';
-
-const FALLBACK_POLL_MS = 8000;
-const LIVE_POLL_MS = 60000;
 
 export function WalletDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -66,20 +64,13 @@ export function WalletDetailPage() {
   useEffect(() => {
     if (!id || !copayerId) return;
     void load();
+    // Chronik → API SSE drives updates; no interval polling while live.
     return subscribe(id, event => {
       void load();
       if (event.type === 'proposal.broadcast') void refreshBalances();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, copayerId]);
-
-  useEffect(() => {
-    if (!id) return;
-    const interval = connectionState === 'connected' ? LIVE_POLL_MS : FALLBACK_POLL_MS;
-    const timer = window.setInterval(() => void load(), interval);
-    return () => window.clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, connectionState]);
 
   if (!wallet) {
     return (
@@ -186,7 +177,10 @@ export function WalletDetailPage() {
                     </span>
                   )}
                 </div>
-                <p className="font-medium truncate">{tokenLabel(token)}</p>
+                <div className="flex items-center gap-2 min-w-0">
+                  <TokenIcon tokenId={token.tokenId} size={64} className="w-8 h-8" />
+                  <p className="font-medium truncate">{tokenLabel(token)}</p>
+                </div>
                 {token.name && token.name !== tokenLabel(token) && (
                   <p className="text-xs text-[var(--abcpay-muted)] truncate">{token.name}</p>
                 )}
@@ -204,10 +198,10 @@ export function WalletDetailPage() {
             className="flex items-center gap-1.5 text-xs text-[var(--abcpay-muted)]"
             title={
               connectionState === 'connected'
-                ? 'Live updates connected'
+                ? 'Live updates connected (Chronik)'
                 : connectionState === 'connecting'
                   ? 'Connecting to live updates…'
-                  : 'Live updates unavailable, falling back to polling'
+                  : 'Live updates disconnected — will retry; pull down to reload'
             }
           >
             <span
@@ -219,7 +213,11 @@ export function WalletDetailPage() {
                     : 'bg-red-400/70'
               }`}
             />
-            {connectionState === 'connected' ? 'Live' : connectionState === 'connecting' ? 'Connecting…' : 'Polling'}
+            {connectionState === 'connected'
+              ? 'Live'
+              : connectionState === 'connecting'
+                ? 'Connecting…'
+                : 'Offline'}
           </span>
         </div>
         <p className="text-sm capitalize text-[var(--abcpay-muted)] mt-2">{remote?.status ?? wallet.status}</p>

@@ -265,9 +265,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           }
         },
         onState: state => {
-          setStates(previous =>
-            previous[wallet.id] === state ? previous : { ...previous, [wallet.id]: state }
-          );
+          setStates(previous => {
+            const prior = previous[wallet.id];
+            // Catch anything missed while the stream was down — no interval polling.
+            if (state === 'connected' && prior && prior !== 'connected') {
+              scheduleRefresh();
+            }
+            return prior === state ? previous : { ...previous, [wallet.id]: state };
+          });
         }
       });
       closersRef.current.set(wallet.id, close);

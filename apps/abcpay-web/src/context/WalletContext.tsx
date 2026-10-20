@@ -17,6 +17,7 @@ import {
 import { getCredentials, saveCredentials } from '../lib/credentials-store';
 import { getWalletBalance as getBalanceFromStored } from '../lib/bwc';
 import { api, type AuthContext } from '../lib/api';
+import { prefetchTokenIcons } from '../lib/token-icons';
 
 /**
  * One Account = one derivation (path + coin) under a Wallet (seed).
@@ -220,8 +221,6 @@ interface WalletContextValue {
   /** @deprecated Use removeAccount */
   removeWallet: (id: string) => void;
   refreshBalances: () => Promise<void>;
-  /** True while a balance refresh is running (manual or automatic). */
-  refreshing: boolean;
   showBalance: boolean;
   setShowBalance: (show: boolean) => void;
   totalFiatBalance: string;
@@ -435,7 +434,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   walletsRef.current = wallets;
   const refreshInFlightRef = useRef(false);
   const refreshQueuedRef = useRef(false);
-  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(WALLETS_KEY, JSON.stringify(wallets));
@@ -452,6 +450,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     localStorage.setItem(KNOWN_TOKENS_KEY, JSON.stringify(knownTokens));
+  }, [knownTokens]);
+
+  // Warm Cashtab/eTokens icons into Cache API whenever we learn new token ids.
+  useEffect(() => {
+    if (knownTokens.length === 0) return;
+    prefetchTokenIcons(knownTokens.map(token => token.tokenId), 64);
   }, [knownTokens]);
 
   useEffect(() => {
@@ -665,14 +669,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshBalances = useCallback(async () => {
-    // Dedupe concurrent refreshes (mount + SSE events + detail-page polls
-    // can otherwise stampede the indexer and clobber each other's results).
+    // Dedupe concurrent refreshes (import + SSE events can otherwise stampede
+    // the indexer and clobber each other's results).
     if (refreshInFlightRef.current) {
       refreshQueuedRef.current = true;
       return;
     }
     refreshInFlightRef.current = true;
-    setRefreshing(true);
     try {
       do {
         refreshQueuedRef.current = false;
@@ -680,7 +683,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       } while (refreshQueuedRef.current);
     } finally {
       refreshInFlightRef.current = false;
-      setRefreshing(false);
     }
   }, [refreshBalancesOnce]);
 
@@ -689,23 +691,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (wallets.length > 0) {
       void refreshBalances();
     }
-    // Refresh when the wallet set changes (e.g. after mnemonic restore), not on every balance update.
+    // One-shot when the wallet set changes (import/create). Live Chronik→SSE
+    // events keep balances current after that; pull-to-reload for a hard sync.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walletIds]);
-
-  // A PWA resumed from the background should refresh without waiting for an
-  // SSE event or a manual Refresh tap.
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void refreshBalances();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('focus', onVisible);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('focus', onVisible);
-    };
-  }, [refreshBalances]);
 
   return (
     <WalletContext.Provider
@@ -727,7 +716,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         removeAccount: removeWallet,
         removeWallet,
         refreshBalances,
-        refreshing,
         showBalance,
         setShowBalance,
         totalFiatBalance,
