@@ -1,4 +1,5 @@
 import { Routes, Route } from 'react-router-dom';
+import { PullToReload } from './components/PullToReload';
 import { TabBar } from './components/ui';
 import { HomePage } from './pages/HomePage';
 import { ScanPage } from './pages/ScanPage';
@@ -15,6 +16,7 @@ import { RestorePage } from './pages/RestorePage';
 export function App() {
   return (
     <div className="min-h-screen pb-28">
+      <PullToReload />
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/scan" element={<ScanPage />} />
