@@ -83,7 +83,25 @@ export function HomePage() {
                 const cfg = COIN_CONFIGS[group.coin];
                 const totalSats = group.entries.reduce((sum, e) => sum + e.balance, 0);
                 const coinAmount = (totalSats / cfg.unitToSatoshi).toFixed(cfg.unitDecimals);
-                const accountTokens = group.entries.flatMap(e => tokensByAccount[e.id] ?? []);
+                // Grouped entries can hold the same token — aggregate atoms
+                // per tokenId so each token shows once with its total.
+                const tokensById = new Map<string, (typeof tokensByAccount)[string][number]>();
+                for (const e of group.entries) {
+                  for (const token of tokensByAccount[e.id] ?? []) {
+                    const existing = tokensById.get(token.tokenId);
+                    if (existing) {
+                      try {
+                        existing.atoms = (BigInt(existing.atoms) + BigInt(token.atoms)).toString();
+                      } catch {
+                        // keep original atoms on malformed values
+                      }
+                      existing.isMintBaton = existing.isMintBaton || token.isMintBaton;
+                    } else {
+                      tokensById.set(token.tokenId, { ...token });
+                    }
+                  }
+                }
+                const accountTokens = [...tokensById.values()];
                 const shownTokens = visibleTokens(accountTokens, tokenVisibility);
                 const hiddenCount = hiddenTokenCount(accountTokens, tokenVisibility);
                 const isCurrent = group.entries.some(e => e.id === activeAccount?.id);

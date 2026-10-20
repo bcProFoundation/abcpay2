@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { SupportedCoin, TokenBalance, WalletResponse } from '@bcpros/abcpay-models';
 import { COIN_CONFIGS, defaultWalletCoinType } from '@bcpros/abcpay-models';
 import type { WalletCredentials } from '@bcpros/abcpay-wallet-core';
@@ -203,6 +203,7 @@ const WALLETS_KEY = 'abcpay_v2_wallets';
 const ACTIVE_WALLET_KEY = 'abcpay_v2_active_wallet';
 const TOKEN_VISIBILITY_KEY = 'abcpay_token_visibility_v1';
 const KNOWN_TOKENS_KEY = 'abcpay_known_tokens_v1';
+const TOKENS_BY_ACCOUNT_KEY = 'abcpay_tokens_by_account_v1';
 
 function loadWallets(): LocalAccount[] {
   try {
@@ -240,6 +241,15 @@ function loadKnownTokens(): TokenBalance[] {
     return raw ? (JSON.parse(raw) as TokenBalance[]) : [];
   } catch {
     return [];
+  }
+}
+
+function loadTokensByAccount(): Record<string, TokenBalance[]> {
+  try {
+    const raw = localStorage.getItem(TOKENS_BY_ACCOUNT_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, TokenBalance[]>) : {};
+  } catch {
+    return {};
   }
 }
 
@@ -294,8 +304,33 @@ function parseStoredCredentials(walletId: string, wallets: LocalWallet[]): Store
 
     // Older clients stored the root key as xPrivKey; signing must use the account key.
     const accountXPriv = accountXPrivFor({ coin, keys: stored.keys }, n);
+    let dirty = false;
     if (accountXPriv && accountXPriv !== stored.keys.xPrivKey) {
       stored.keys.xPrivKey = accountXPriv;
+      dirty = true;
+    }
+
+    // Heal the seed-level request key from the stored mnemonic. Balance/auth
+    // only depends on this key (m/1'/0) + copayerId, so a record saved by an
+    // older build with a mismatched request key would fail every signed
+    // balance request (and silently show 0) even though the seed is correct.
+    if (stored.keys.mnemonic) {
+      try {
+        const derived = createCredentials({ coin, mnemonic: stored.keys.mnemonic });
+        if (
+          derived.requestPubKey !== stored.keys.requestPubKey ||
+          derived.requestPrivKey !== stored.keys.requestPrivKey
+        ) {
+          stored.keys.requestPubKey = derived.requestPubKey;
+          stored.keys.requestPrivKey = derived.requestPrivKey;
+          dirty = true;
+        }
+      } catch {
+        // Keep stored keys if the mnemonic cannot be re-derived.
+      }
+    }
+
+    if (dirty) {
       saveCredentials(walletId, JSON.stringify({ ...stored, keys: { ...stored.keys } }));
     }
 
@@ -352,7 +387,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [pendingMnemonic, setPendingMnemonic] = useState<string | null>(null);
   const [tokenVisibility, setTokenVisibility] = useState<TokenVisibilitySettings>(loadTokenVisibility);
   const [knownTokens, setKnownTokens] = useState<TokenBalance[]>(loadKnownTokens);
-  const [tokensByAccount, setTokensByAccount] = useState<Record<string, TokenBalance[]>>({});
+  const [tokensByAccount, setTokensByAccount] = useState<Record<string, TokenBalance[]>>(
+    loadTokensByAccount
+  );
+  const walletsRef = useRef(wallets);
+  walletsRef.current = wallets;
+  const refreshInFlightRef = useRef(false);
+  const refreshQueuedRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem(WALLETS_KEY, JSON.stringify(wallets));
@@ -370,6 +411,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     localStorage.setItem(KNOWN_TOKENS_KEY, JSON.stringify(knownTokens));
   }, [knownTokens]);
+
+  useEffect(() => {
+    localStorage.setItem(TOKENS_BY_ACCOUNT_KEY, JSON.stringify(tokensByAccount));
+  }, [tokensByAccount]);
+
+  // Total cash value follows the per-Account fiat values, so it stays
+  // correct even when a refresh only updates some Accounts.
+  useEffect(() => {
+    const total = wallets.reduce((sum, wallet) => {
+      const value = parseFloat((wallet.fiatBalance ?? '').replace(/[^0-9.-]/g, ''));
+      return sum + (Number.isFinite(value) ? value : 0);
+    }, 0);
+    setTotalFiatBalance(`$${total.toFixed(2)}`);
+  }, [wallets]);
 
   const setTokenVisible = useCallback((tokenId: string, visible: boolean) => {
     setTokenVisibility(prev => withTokenVisibility(prev, tokenId, visible));
@@ -452,88 +507,140 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [wallets]
   );
 
-  const refreshBalances = useCallback(async () => {
-    let totalFiat = 0;
-    const nextTokensByAccount: Record<string, TokenBalance[]> = {};
+  const refreshBalancesOnce = useCallback(async () => {
+    const current = walletsRef.current;
+    if (current.length === 0) return;
     const discovered = new Map<string, TokenBalance>();
 
-    const updated = await Promise.all(
-      wallets.map(async wallet => {
-        try {
-          const auth = authFor(wallet.id);
-          let balance = 0;
-          let tokenCount = wallet.tokenCount ?? 0;
+    interface RefreshResult {
+      id: string;
+      balanceSuccess: boolean;
+      balance: number;
+      tokenCount: number;
+      fiatBalance?: string;
+      status: string;
+      m: number;
+      n: number;
+      network?: string;
+    }
 
-          if (auth) {
-            try {
-              const remoteBalance = await api.getBalance(auth);
-              balance = remoteBalance.totalAmount;
-              tokenCount = remoteBalance.tokens?.length ?? 0;
-              nextTokensByAccount[wallet.id] = remoteBalance.tokens ?? [];
-              for (const token of remoteBalance.tokens ?? []) {
-                if (!discovered.has(token.tokenId)) discovered.set(token.tokenId, token);
-              }
-            } catch {
-              const creds = getCredentials(wallet.id);
-              if (creds) {
-                try {
-                  balance = await getBalanceFromStored(creds);
-                } catch {
-                  balance = wallet.balance;
-                }
+    const results = await Promise.all(
+      current.map(async (wallet): Promise<RefreshResult> => {
+        const result: RefreshResult = {
+          id: wallet.id,
+          balanceSuccess: false,
+          balance: wallet.balance,
+          tokenCount: wallet.tokenCount ?? 0,
+          status: wallet.status,
+          m: wallet.m,
+          n: wallet.n,
+          network: wallet.network
+        };
+
+        const creds = parseStoredCredentials(wallet.id, current);
+        const auth: AuthContext | undefined = creds
+          ? { walletId: wallet.id, copayerId: creds.copayerId, requestPrivKey: creds.requestPrivKey }
+          : undefined;
+
+        if (auth) {
+          try {
+            const remoteBalance = await api.getBalance(auth);
+            result.balance = remoteBalance.totalAmount;
+            result.tokenCount = remoteBalance.tokens?.length ?? 0;
+            result.balanceSuccess = true;
+            const tokens = remoteBalance.tokens ?? [];
+            // Apply token data as soon as this Account resolves — do not
+            // wait for slower Accounts (e.g. multisig with many addresses).
+            setTokensByAccount(prev => ({ ...prev, [wallet.id]: tokens }));
+            for (const token of tokens) {
+              if (!discovered.has(token.tokenId)) discovered.set(token.tokenId, token);
+            }
+          } catch {
+            const stored = getCredentials(wallet.id);
+            if (stored) {
+              try {
+                result.balance = await getBalanceFromStored(stored);
+                result.balanceSuccess = true;
+              } catch {
+                // Keep the last known balance (merged below).
               }
             }
           }
 
-          const fiat = await api.getFiatRate(wallet.coin);
-          const config = COIN_CONFIGS[wallet.coin];
-          const amount = balance / config.unitToSatoshi;
-          const fiatAmount = amount * fiat.rate;
-          totalFiat += fiatAmount;
-
-          let status = wallet.status;
-          let m = wallet.m;
-          let n = wallet.n;
-          let network = wallet.network;
-          if (auth) {
-            try {
-              const remote = await api.getWallet(auth);
-              status = remote.status;
-              m = remote.m;
-              n = remote.n;
-              if (remote.network) network = remote.network;
-            } catch {
-              // keep local values
-            }
+          try {
+            const remote = await api.getWallet(auth);
+            result.status = remote.status;
+            result.m = remote.m;
+            result.n = remote.n;
+            if (remote.network) result.network = remote.network;
+          } catch {
+            // keep local values
           }
-
-          return {
-            ...wallet,
-            balance,
-            tokenCount,
-            fiatBalance: `$${fiatAmount.toFixed(2)}`,
-            status,
-            m,
-            n,
-            network
-          };
-        } catch {
-          return wallet;
         }
+
+        if (result.balanceSuccess) {
+          try {
+            const fiat = await api.getFiatRate(wallet.coin);
+            const config = COIN_CONFIGS[wallet.coin];
+            const amount = result.balance / config.unitToSatoshi;
+            result.fiatBalance = `$${(amount * fiat.rate).toFixed(2)}`;
+          } catch {
+            // Fiat is display-only; never let it discard a good balance.
+          }
+        }
+
+        return result;
       })
     );
 
-    setWallets(updated);
-    setTotalFiatBalance(`$${totalFiat.toFixed(2)}`);
-    if (Object.keys(nextTokensByAccount).length > 0) {
-      setTokensByAccount(prev => ({ ...prev, ...nextTokensByAccount }));
+    const byId = new Map(results.map(r => [r.id, r]));
+    // Merge into the LATEST wallet list: a slow, failed refresh must never
+    // overwrite a balance another refresh already fetched (previously the
+    // whole array was replaced from a stale closure, reverting a newly
+    // imported Wallet's balance to 0).
+    setWallets(prev =>
+      prev.map(wallet => {
+        const result = byId.get(wallet.id);
+        if (!result) return wallet;
+        return {
+          ...wallet,
+          balance: result.balanceSuccess ? result.balance : wallet.balance,
+          tokenCount: result.balanceSuccess ? result.tokenCount : wallet.tokenCount,
+          fiatBalance: result.fiatBalance ?? wallet.fiatBalance,
+          status: result.status,
+          m: result.m,
+          n: result.n,
+          network: result.network ?? wallet.network
+        };
+      })
+    );
+
+    if (discovered.size > 0) {
       setKnownTokens(prev => {
         const merged = new Map(prev.map(t => [t.tokenId, t]));
         for (const token of discovered.values()) merged.set(token.tokenId, token);
         return [...merged.values()];
       });
     }
-  }, [wallets, authFor]);
+  }, []);
+
+  const refreshBalances = useCallback(async () => {
+    // Dedupe concurrent refreshes (mount + SSE events + detail-page polls
+    // can otherwise stampede the indexer and clobber each other's results).
+    if (refreshInFlightRef.current) {
+      refreshQueuedRef.current = true;
+      return;
+    }
+    refreshInFlightRef.current = true;
+    try {
+      do {
+        refreshQueuedRef.current = false;
+        await refreshBalancesOnce();
+      } while (refreshQueuedRef.current);
+    } finally {
+      refreshInFlightRef.current = false;
+    }
+  }, [refreshBalancesOnce]);
 
   const walletIds = wallets.map(wallet => wallet.id).join(',');
   useEffect(() => {
@@ -543,6 +650,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     // Refresh when the wallet set changes (e.g. after mnemonic restore), not on every balance update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walletIds]);
+
+  // A PWA resumed from the background should refresh without waiting for an
+  // SSE event or a manual Refresh tap.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshBalances();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [refreshBalances]);
 
   return (
     <WalletContext.Provider
