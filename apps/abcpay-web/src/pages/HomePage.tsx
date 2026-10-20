@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import { AbcPayLogo, CoinIcon, EyeToggle } from '../components/ui';
+import { TokenIcon } from '../components/TokenIcon';
 import { formatFixed, hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
 import { useWallets, accountNetworkLabel } from '../context/WalletContext';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
@@ -143,11 +144,7 @@ export function HomePage() {
                           className="flex items-center justify-between text-sm"
                         >
                           <span className="inline-flex items-center gap-1.5 text-[var(--abcpay-muted)] truncate pr-2">
-                            <img
-                              src="/currencies/eToken.svg"
-                              alt=""
-                              className="w-4 h-4 rounded-full shrink-0"
-                            />
+                            <TokenIcon tokenId={token.tokenId} size={64} className="w-4 h-4" />
                             <span className="truncate">{tokenLabel(token)}</span>
                           </span>
                           <span className="font-mono shrink-0">

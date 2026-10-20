@@ -7,6 +7,7 @@ import {
   labelForAccount
 } from '../context/WalletContext';
 import { useNotifications } from '../context/NotificationContext';
+import { TokenIcon } from '../components/TokenIcon';
 import { API_URL } from '../lib/api';
 import { tokenLabel } from '../lib/token-format';
 
@@ -124,10 +125,13 @@ export function SettingsPage() {
                   key={token.tokenId}
                   className="flex items-center justify-between gap-3 cursor-pointer"
                 >
-                  <span className="text-sm truncate">
-                    {tokenLabel(token)}
-                    <span className="block text-xs text-[var(--abcpay-muted)] font-mono truncate">
-                      {token.tokenId.slice(0, 16)}…
+                  <span className="flex items-center gap-2.5 min-w-0 text-sm">
+                    <TokenIcon tokenId={token.tokenId} size={64} className="w-8 h-8" />
+                    <span className="truncate">
+                      {tokenLabel(token)}
+                      <span className="block text-xs text-[var(--abcpay-muted)] font-mono truncate">
+                        {token.tokenId.slice(0, 16)}…
+                      </span>
                     </span>
                   </span>
                   <input

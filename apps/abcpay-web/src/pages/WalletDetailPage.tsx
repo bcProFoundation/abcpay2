@@ -8,6 +8,7 @@ import { useNotifications } from '../context/NotificationContext';
 import { api } from '../lib/api';
 import { intentFromProposal, mergeJoinRecordUntilComplete } from '../lib/proposal-verify';
 import { broadcastProposal, signAndMaybeBroadcast } from '../lib/tx';
+import { TokenIcon } from '../components/TokenIcon';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
 import { formatAmount, hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
 import { accountDisplayTitle, accountNetworkLabel, labelForAccount } from '../context/WalletContext';
@@ -176,7 +177,10 @@ export function WalletDetailPage() {
                     </span>
                   )}
                 </div>
-                <p className="font-medium truncate">{tokenLabel(token)}</p>
+                <div className="flex items-center gap-2 min-w-0">
+                  <TokenIcon tokenId={token.tokenId} size={64} className="w-8 h-8" />
+                  <p className="font-medium truncate">{tokenLabel(token)}</p>
+                </div>
                 {token.name && token.name !== tokenLabel(token) && (
                   <p className="text-xs text-[var(--abcpay-muted)] truncate">{token.name}</p>
                 )}
