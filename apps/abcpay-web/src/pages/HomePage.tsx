@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import { AbcPayLogo, CoinIcon, EyeToggle } from '../components/ui';
-import { hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
+import { formatFixed, hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
 import { useWallets, accountNetworkLabel } from '../context/WalletContext';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
 
@@ -95,7 +95,7 @@ export function HomePage() {
                 const entry = group.entries[0];
                 const cfg = COIN_CONFIGS[group.coin];
                 const totalSats = group.entries.reduce((sum, e) => sum + e.balance, 0);
-                const coinAmount = (totalSats / cfg.unitToSatoshi).toFixed(cfg.unitDecimals);
+                const coinAmount = formatFixed(totalSats / cfg.unitToSatoshi, cfg.unitDecimals);
                 // Grouped entries can hold the same token — aggregate atoms
                 // per tokenId so each token shows once with its total.
                 const tokensById = new Map<string, (typeof tokensByAccount)[string][number]>();

@@ -9,7 +9,7 @@ import { api } from '../lib/api';
 import { intentFromProposal, mergeJoinRecordUntilComplete } from '../lib/proposal-verify';
 import { broadcastProposal, signAndMaybeBroadcast } from '../lib/tx';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
-import { hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
+import { formatAmount, hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
 import { accountDisplayTitle, accountNetworkLabel, labelForAccount } from '../context/WalletContext';
 
 const FALLBACK_POLL_MS = 8000;
@@ -112,7 +112,7 @@ export function WalletDetailPage() {
         </h1>
         <p className="text-3xl font-bold">
           {showBalance
-            ? `${((spendable ?? wallet.balance) / config.unitToSatoshi).toFixed(config.unitDecimals)} ${config.unitName}`
+            ? formatAmount(wallet.coin, spendable ?? wallet.balance)
             : '****'}
         </p>
         <p className="text-[var(--abcpay-muted)] mt-1">{showBalance ? wallet.fiatBalance : '****'}</p>
@@ -245,7 +245,7 @@ export function WalletDetailPage() {
                           ? `${formatTokenAtoms(tokenOutput.atoms ?? '0', tokenMeta?.decimals)} ${
                               tokenMeta ? tokenLabel(tokenMeta) : 'token'
                             }`
-                          : `${(p.amount / config.unitToSatoshi).toFixed(config.unitDecimals)} ${config.unitName}`}{' '}
+                          : formatAmount(wallet.coin, p.amount)}{' '}
                         → {p.outputs?.[tokenOutput ? 1 : 0]?.toAddress.slice(0, 18)}…
                       </p>
                     );

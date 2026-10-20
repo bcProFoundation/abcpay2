@@ -31,10 +31,31 @@ export function getRootPath(opts: {
   return `m/${purpose}'/${coinType}'/${account}'`;
 }
 
+/** Grouped decimal string, e.g. 689169783.73 → "689,169,783.73". */
+export function formatFixed(value: number, decimals: number): string {
+  if (!Number.isFinite(value)) return (0).toFixed(Math.max(0, decimals));
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+    useGrouping: true
+  }).format(value);
+}
+
+/** USD display with grouping, e.g. 1234.5 → "$1,234.50". */
+export function formatFiatUsd(value: number): string {
+  if (!Number.isFinite(value)) return '$0.00';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
 export function formatAmount(coin: SupportedCoin, satoshis: number): string {
   const config = COIN_CONFIGS[coin];
   const amount = satoshis / config.unitToSatoshi;
-  return `${amount.toFixed(config.unitDecimals)} ${config.unitName}`;
+  return `${formatFixed(amount, config.unitDecimals)} ${config.unitName}`;
 }
 
 export function toSatoshis(coin: SupportedCoin, amount: number): number {
