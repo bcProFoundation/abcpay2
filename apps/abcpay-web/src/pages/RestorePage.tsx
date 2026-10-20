@@ -16,7 +16,12 @@ import {
 import { api } from '../lib/api';
 import { saveCredentials } from '../lib/credentials-store';
 import { persistJoinRecord } from '../lib/proposal-verify';
-import { useWallets, walletFromResponse, labelForAccount, type LocalAccount } from '../context/WalletContext';
+import {
+  useWallets,
+  walletFromResponse,
+  accountDisplayTitle,
+  type LocalAccount
+} from '../context/WalletContext';
 
 const SEED_ID_RE = /^(02|03)[0-9a-fA-F]{64}$/;
 
@@ -225,9 +230,11 @@ export function RestorePage() {
                 onClick={() => navigate(`/wallet/${account.id}`)}
                 className="w-full text-left p-4 bg-[var(--abcpay-surface)] rounded-xl hover:bg-[var(--abcpay-surface-2)]"
               >
-                <span className="font-medium">{account.name}</span>
-                <span className="block text-xs text-[var(--abcpay-muted)] mt-1 font-mono">
-                  {labelForAccount(account)} · {account.network ?? 'livenet'} · {account.status}
+                <span className="font-medium font-mono">
+                  Account · {accountDisplayTitle(account)}
+                </span>
+                <span className="block text-xs text-[var(--abcpay-muted)] mt-1">
+                  {account.coin.toUpperCase()} · {account.network ?? 'livenet'} · {account.status}
                 </span>
               </button>
             ))}

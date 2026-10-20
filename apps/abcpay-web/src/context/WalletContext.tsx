@@ -84,6 +84,24 @@ export function labelForAccount(
 /** @deprecated Use labelForAccount */
 export const labelForWallet = labelForAccount;
 
+/**
+ * Title shown for an Account row: path (+ m-of-n). Never includes the server
+ * wallet record id — Wallet ids belong only at the Wallet (seed) level.
+ */
+export function accountDisplayTitle(
+  account: Pick<LocalAccount, 'coin' | 'coinType' | 'm' | 'n' | 'accountPath'>
+): string {
+  const path =
+    account.accountPath ??
+    accountPathFor({
+      coin: account.coin,
+      coinType: account.coinType,
+      m: account.m,
+      n: account.n
+    });
+  return account.n > 1 ? `${path} · ${account.m}-of-${account.n}` : path;
+}
+
 export function groupAccountsByPath(accounts: LocalAccount[]): GroupedAccount[] {
   const byKey = new Map<string, GroupedAccount>();
   for (const account of accounts) {

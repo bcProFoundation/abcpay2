@@ -10,7 +10,7 @@ import { intentFromProposal, mergeJoinRecordUntilComplete } from '../lib/proposa
 import { broadcastProposal, signAndMaybeBroadcast } from '../lib/tx';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
 import { hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
-import { labelForAccount } from '../context/WalletContext';
+import { accountDisplayTitle, labelForAccount } from '../context/WalletContext';
 
 const FALLBACK_POLL_MS = 8000;
 const LIVE_POLL_MS = 60000;
@@ -102,7 +102,14 @@ export function WalletDetailPage() {
           <CoinBadge coin={wallet.coin} />
           <MultisigBadge m={remote?.m ?? wallet.m} n={remote?.n ?? wallet.n} />
         </div>
-        <h1 className="text-xl font-medium mb-2">{wallet.name}</h1>
+        <h1 className="text-xl font-medium mb-2 font-mono">
+          Account ·{' '}
+          {accountDisplayTitle({
+            ...wallet,
+            m: remote?.m ?? wallet.m,
+            n: remote?.n ?? wallet.n
+          })}
+        </h1>
         <p className="text-3xl font-bold">
           {showBalance
             ? `${((spendable ?? wallet.balance) / config.unitToSatoshi).toFixed(config.unitDecimals)} ${config.unitName}`

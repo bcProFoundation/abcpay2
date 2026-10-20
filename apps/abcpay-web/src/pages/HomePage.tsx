@@ -4,7 +4,7 @@ import { COIN_CONFIGS } from '@bcpros/abcpay-models';
 import type { TokenBalance } from '@bcpros/abcpay-models';
 import { AbcPayLogo, CoinBadge, EyeToggle, MultisigBadge } from '../components/ui';
 import { hiddenTokenCount, visibleTokens, walletDisplayId } from '@bcpros/abcpay-wallet-core';
-import { useWallets, labelForAccount } from '../context/WalletContext';
+import { useWallets, accountDisplayTitle } from '../context/WalletContext';
 import { useNotifications } from '../context/NotificationContext';
 import { api } from '../lib/api';
 import { formatTokenAtoms, tokenLabel } from '../lib/token-format';
@@ -107,7 +107,9 @@ export function HomePage() {
             <span className="text-3xl font-semibold">{showBalance ? totalFiatBalance : '******'}</span>
           </div>
           <Link to={`/wallet/${activeWallet.id}`} className="inline-flex items-center gap-2 mt-3 hover:opacity-80">
-            <span className="font-medium">{activeWallet.name}</span>
+            <span className="font-medium font-mono text-sm">
+              Account · {accountDisplayTitle(activeWallet)}
+            </span>
             <CoinBadge coin={activeWallet.coin} />
             <MultisigBadge m={activeWallet.m} n={activeWallet.n} />
           </Link>
@@ -127,7 +129,7 @@ export function HomePage() {
               </span>
             </div>
             <p className="text-xs text-[var(--abcpay-muted)] mb-3">
-              1 seed · {wallet.groupedAccounts.length}{' '}
+              {wallet.groupedAccounts.length}{' '}
               {wallet.groupedAccounts.length === 1 ? 'Account' : 'Accounts'} — each Account is a
               derivation path with its coins and tokens.
             </p>
@@ -140,24 +142,26 @@ export function HomePage() {
                 const accountTokens = group.entries.flatMap(e => tokensByAccount[e.id] ?? []);
                 const shownTokens = visibleTokens(accountTokens, tokenVisibility);
                 const hiddenCount = hiddenTokenCount(accountTokens, tokenVisibility);
+                const isCurrent = group.entries.some(e => e.id === activeWallet.id);
                 return (
                   <div key={group.key}>
                     <Link
                       to={`/wallet/${entry.id}`}
                       onClick={() => setActiveWallet(entry.id)}
                       className={`flex items-center justify-between gap-3 p-3 rounded-xl transition-colors ${
-                        group.entries.some(e => e.id === activeWallet.id)
+                        isCurrent
                           ? 'bg-[var(--abcpay-surface-2)] border border-[var(--abcpay-accent)]/40'
                           : 'bg-black/20 hover:bg-[var(--abcpay-surface-2)]'
                       }`}
                     >
                       <span className="min-w-0">
-                        <span className="block text-sm font-medium truncate">{entry.name}</span>
-                        <span className="block text-xs text-[var(--abcpay-muted)] font-mono">
-                          {labelForAccount({ ...entry, accountPath: group.accountPath, network: undefined })}
-                          {group.entries.some(e => e.id === activeWallet.id) ? ' · current' : ''}
+                        <span className="block text-sm font-medium font-mono truncate">
+                          Account · {accountDisplayTitle({ ...entry, accountPath: group.accountPath })}
                         </span>
                         <span className="block text-xs text-[var(--abcpay-muted)]">
+                          {group.coin.toUpperCase()}
+                          {isCurrent ? ' · current' : ''}
+                          {' · '}
                           {group.networks.join(' · ') || 'livenet'}
                         </span>
                       </span>

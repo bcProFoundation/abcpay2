@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { isTokenVisible, walletDisplayId } from '@bcpros/abcpay-wallet-core';
-import { useWallets, labelForAccount } from '../context/WalletContext';
+import { useWallets, accountDisplayTitle, labelForAccount } from '../context/WalletContext';
 import { API_URL } from '../lib/api';
 import { tokenLabel } from '../lib/token-format';
 
@@ -76,7 +76,7 @@ export function SettingsPage() {
               {walletDisplayId(wallet.id)}
             </p>
             <p className="text-xs text-[var(--abcpay-muted)] mb-3">
-              One seed · {wallet.groupedAccounts.length}{' '}
+              {wallet.groupedAccounts.length}{' '}
               {wallet.groupedAccounts.length === 1 ? 'Account' : 'Accounts'} (path + coin;
               network does not split an Account). Pick one to make it current.
             </p>
@@ -87,12 +87,13 @@ export function SettingsPage() {
                 return (
                   <div key={group.key} className="flex items-center justify-between gap-3">
                     <span className={`text-sm truncate ${isCurrent ? 'font-medium' : ''}`}>
-                      {entry.name}
-                      <span className="block text-xs text-[var(--abcpay-muted)] font-mono">
-                        {labelForAccount({ ...entry, accountPath: group.accountPath, network: undefined })}
-                        {isCurrent ? ' · current' : ''}
+                      <span className="font-mono">
+                        Account · {accountDisplayTitle({ ...entry, accountPath: group.accountPath })}
                       </span>
                       <span className="block text-xs text-[var(--abcpay-muted)]">
+                        {group.coin.toUpperCase()}
+                        {isCurrent ? ' · current' : ''}
+                        {' · '}
                         {group.networks.join(' · ') || 'livenet'}
                       </span>
                     </span>
