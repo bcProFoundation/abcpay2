@@ -53,13 +53,12 @@ body {
 }
 
 .glass-nav-shell {
-  --glass-fill: color-mix(in srgb, #1a1a1a 42%, transparent);
-  --glass-rim: color-mix(in srgb, #ffffff 28%, transparent);
-  --glass-shine: color-mix(in srgb, #ffffff 38%, transparent);
-  --glass-blob: color-mix(in srgb, #ffffff 22%, transparent);
-  --glass-ink: color-mix(in srgb, #ffffff 55%, transparent);
+  --glass-fill: color-mix(in srgb, #1a1a1a 48%, transparent);
+  --glass-rim: color-mix(in srgb, #ffffff 16%, transparent);
+  --glass-blob: color-mix(in srgb, var(--abcpay-accent) 28%, transparent);
+  --glass-ink: color-mix(in srgb, #ffffff 52%, transparent);
   --glass-ink-active: #ffffff;
-  --glass-shadow: 0 10px 28px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.16);
+  --glass-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
   pointer-events: auto;
   position: relative;
   display: grid;
@@ -69,14 +68,9 @@ body {
   border-radius: 999px;
   isolation: isolate;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #ffffff 18%, transparent) 0%, transparent 42%),
-    var(--glass-fill);
+  background: var(--glass-fill);
   border: 1px solid var(--glass-rim);
-  box-shadow:
-    var(--glass-shadow),
-    inset 0 1px 0 var(--glass-shine),
-    inset 0 -0.5px 0 color-mix(in srgb, #000 22%, transparent);
+  box-shadow: var(--glass-shadow);
 }
 
 .glass-nav-shell::before {
@@ -86,8 +80,8 @@ body {
   z-index: 0;
   border-radius: inherit;
   pointer-events: none;
-  backdrop-filter: blur(22px) saturate(1.7);
-  -webkit-backdrop-filter: blur(22px) saturate(1.7);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
 }
 
 .glass-nav-blob {
@@ -97,19 +91,11 @@ body {
   left: 0.28rem;
   width: calc((100% - 0.56rem) / 3);
   border-radius: 999px;
-  background:
-    linear-gradient(
-      165deg,
-      color-mix(in srgb, #ffffff 55%, transparent) 0%,
-      var(--glass-blob) 38%,
-      color-mix(in srgb, var(--abcpay-accent) 35%, transparent) 100%
-    );
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #ffffff 70%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, #000 12%, transparent),
-    0 4px 14px color-mix(in srgb, #000 18%, transparent);
+  background: var(--glass-blob);
+  border: 1px solid color-mix(in srgb, #ffffff 12%, transparent);
+  box-shadow: none;
   transform: translateX(0);
-  transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
   z-index: 0;
 }
 
@@ -167,6 +153,7 @@ body {
     backdrop-filter: none;
   }
   .glass-nav-shell {
-    --glass-fill: color-mix(in srgb, #1a1a1a 86%, transparent);
+    --glass-fill: color-mix(in srgb, #1a1a1a 88%, transparent);
+    --glass-blob: color-mix(in srgb, var(--abcpay-accent) 38%, transparent);
   }
 }
