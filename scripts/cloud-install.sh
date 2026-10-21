@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Idempotent Cloud Agent install for AbcPay v2.
-# Prepares system deps (Node 26, PostgreSQL 18), workspace deps, shared package builds,
+# Prepares system deps (Node >=26.12.1, PostgreSQL 18), workspace deps, shared package builds,
 # a local Postgres cluster, and the database schema. Safe to run repeatedly.
 set -euo pipefail
 
@@ -71,11 +71,21 @@ ensure_node_26() {
   export PATH="$NODE26_PREFIX/bin:$PATH"
   hash -r
 
+  # Prefer the patched Node over Cloud Agent exec-daemon / nvm Node 22 on default PATH.
+  if command -v sudo >/dev/null 2>&1; then
+    for bin in node npm npx corepack; do
+      if [ -x "$NODE26_PREFIX/bin/$bin" ]; then
+        sudo ln -sfn "$NODE26_PREFIX/bin/$bin" "/usr/local/bin/$bin"
+      fi
+    done
+  fi
+  hash -r
+
   if ! node_meets_min_26 "$(command -v node)"; then
     echo "Installed Node $(node -v) is below required ${MIN_NODE_26}" >&2
     exit 1
   fi
-  echo "Node $(node -v) ready"
+  echo "Node $(node -v) ready ($(command -v node))"
 }
 
 echo "==> Ensuring Node.js 26 is available"
