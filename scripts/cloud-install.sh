@@ -10,20 +10,39 @@ cd "$REPO_ROOT"
 # shellcheck source=scripts/cloud-env.sh
 . "$REPO_ROOT/scripts/cloud-env.sh"
 
+# Floor matches Oct 21 2026 Node security release (26.12.1).
+# Older 26.x on PATH/prefix must be upgraded — "any v26" is not enough.
+MIN_NODE_26="${MIN_NODE_26:-26.12.1}"
+
+node_version_ge() {
+  # Usage: node_version_ge <version> <min>  (e.g. 26.12.1 26.12.1)
+  local ver="${1#v}" min="${2#v}"
+  printf '%s\n%s\n' "$min" "$ver" | sort -V | head -n1 | grep -qx "$min"
+}
+
+node_meets_min_26() {
+  local bin="$1" ver
+  [ -x "$bin" ] || return 1
+  ver="$("$bin" -v 2>/dev/null || true)"
+  [[ "$ver" =~ ^v26\. ]] || return 1
+  node_version_ge "$ver" "$MIN_NODE_26"
+}
+
 ensure_node_26() {
-  if command -v node >/dev/null 2>&1 && node -v 2>/dev/null | grep -qE '^v26\.'; then
-    echo "Node $(node -v) already on PATH"
+  NODE26_PREFIX="${NODE26_PREFIX:-$HOME/.local/node-26}"
+
+  if command -v node >/dev/null 2>&1 && node_meets_min_26 "$(command -v node)"; then
+    echo "Node $(node -v) already on PATH (>= ${MIN_NODE_26})"
     return 0
   fi
 
-  NODE26_PREFIX="${NODE26_PREFIX:-$HOME/.local/node-26}"
-  if [ -x "$NODE26_PREFIX/bin/node" ] && "$NODE26_PREFIX/bin/node" -v 2>/dev/null | grep -qE '^v26\.'; then
+  if node_meets_min_26 "$NODE26_PREFIX/bin/node"; then
     export PATH="$NODE26_PREFIX/bin:$PATH"
     echo "Node $($NODE26_PREFIX/bin/node -v) already installed at $NODE26_PREFIX"
     return 0
   fi
 
-  echo "==> Installing Node.js 26 (official binary)"
+  echo "==> Installing Node.js 26 (>= ${MIN_NODE_26}, latest-v26.x) from nodejs.org"
   sudo apt-get update -qq
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates xz-utils
 
@@ -45,10 +64,18 @@ ensure_node_26() {
   curl -fsSL "https://nodejs.org/dist/latest-v26.x/${tarball}" -o "$tmpdir/${tarball}"
   echo "${expected}  ${tmpdir}/${tarball}" | sha256sum -c -
   mkdir -p "$NODE26_PREFIX"
+  # Replace any older prefix install so PATH picks up the patched binary.
+  rm -rf "${NODE26_PREFIX:?}/"*
   tar -xJf "$tmpdir/${tarball}" -C "$NODE26_PREFIX" --strip-components=1
   rm -rf "$tmpdir"
   export PATH="$NODE26_PREFIX/bin:$PATH"
   hash -r
+
+  if ! node_meets_min_26 "$(command -v node)"; then
+    echo "Installed Node $(node -v) is below required ${MIN_NODE_26}" >&2
+    exit 1
+  fi
+  echo "Node $(node -v) ready"
 }
 
 echo "==> Ensuring Node.js 26 is available"

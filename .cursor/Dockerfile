@@ -1,4 +1,5 @@
-FROM node:26-bookworm-slim
+# Node 26.12.1 — Oct 21 2026 security release (CVE-2026-111497 et al.)
+FROM node:26.12.1-bookworm-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
