@@ -28,16 +28,34 @@ node_meets_min_26() {
   node_version_ge "$ver" "$MIN_NODE_26"
 }
 
+prefer_node26_on_path() {
+  # Prefer the patched Node over Cloud Agent exec-daemon / nvm Node 22.
+  local prefix="${1:-$NODE26_PREFIX}"
+  if [ -x "$prefix/bin/node" ] && command -v sudo >/dev/null 2>&1; then
+    for bin in node npm npx corepack; do
+      if [ -x "$prefix/bin/$bin" ]; then
+        sudo ln -sfn "$prefix/bin/$bin" "/usr/local/bin/$bin"
+      fi
+    done
+    hash -r
+  fi
+}
+
 ensure_node_26() {
   NODE26_PREFIX="${NODE26_PREFIX:-$HOME/.local/node-26}"
 
   if command -v node >/dev/null 2>&1 && node_meets_min_26 "$(command -v node)"; then
+    # Still expose via /usr/local/bin when this is our prefix install.
+    if [ "$(command -v node)" = "$NODE26_PREFIX/bin/node" ]; then
+      prefer_node26_on_path "$NODE26_PREFIX"
+    fi
     echo "Node $(node -v) already on PATH (>= ${MIN_NODE_26})"
     return 0
   fi
 
   if node_meets_min_26 "$NODE26_PREFIX/bin/node"; then
     export PATH="$NODE26_PREFIX/bin:$PATH"
+    prefer_node26_on_path "$NODE26_PREFIX"
     echo "Node $($NODE26_PREFIX/bin/node -v) already installed at $NODE26_PREFIX"
     return 0
   fi
@@ -69,17 +87,7 @@ ensure_node_26() {
   tar -xJf "$tmpdir/${tarball}" -C "$NODE26_PREFIX" --strip-components=1
   rm -rf "$tmpdir"
   export PATH="$NODE26_PREFIX/bin:$PATH"
-  hash -r
-
-  # Prefer the patched Node over Cloud Agent exec-daemon / nvm Node 22 on default PATH.
-  if command -v sudo >/dev/null 2>&1; then
-    for bin in node npm npx corepack; do
-      if [ -x "$NODE26_PREFIX/bin/$bin" ]; then
-        sudo ln -sfn "$NODE26_PREFIX/bin/$bin" "/usr/local/bin/$bin"
-      fi
-    done
-  fi
-  hash -r
+  prefer_node26_on_path "$NODE26_PREFIX"
 
   if ! node_meets_min_26 "$(command -v node)"; then
     echo "Installed Node $(node -v) is below required ${MIN_NODE_26}" >&2
