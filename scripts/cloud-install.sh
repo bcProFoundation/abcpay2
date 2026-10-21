@@ -30,15 +30,25 @@ node_meets_min_26() {
 
 prefer_node26_on_path() {
   # Prefer the patched Node over Cloud Agent exec-daemon / nvm Node 22.
+  # exec-daemon is early on PATH, so also drop a profile.d entry for login shells
+  # (install/start run as bash -l) and keep /usr/local/bin symlinks as a fallback.
   local prefix="${1:-$NODE26_PREFIX}"
-  if [ -x "$prefix/bin/node" ] && command -v sudo >/dev/null 2>&1; then
+  if [ ! -x "$prefix/bin/node" ]; then
+    return 0
+  fi
+  if command -v sudo >/dev/null 2>&1; then
     for bin in node npm npx corepack; do
       if [ -x "$prefix/bin/$bin" ]; then
         sudo ln -sfn "$prefix/bin/$bin" "/usr/local/bin/$bin"
       fi
     done
+    sudo tee /etc/profile.d/abcpay-node26.sh >/dev/null <<EOF
+# AbcPay: Node >= ${MIN_NODE_26} ahead of Cloud Agent exec-daemon Node 22.
+export PATH="${prefix}/bin:\$PATH"
+EOF
     hash -r
   fi
+  export PATH="$prefix/bin:$PATH"
 }
 
 ensure_node_26() {
