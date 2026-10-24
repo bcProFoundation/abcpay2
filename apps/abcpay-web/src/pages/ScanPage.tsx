@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 import { validateAddress } from '@bcpros/abcpay-wallet-core';
 import { useWallets } from '../context/WalletContext';
 
-function parsePayload(raw: string): { kind: 'address' | 'wallet'; value: string; amount?: string; coin?: 'xec' | 'doge' } | null {
+function parsePayload(
+  raw: string
+): { kind: 'address' | 'wallet'; value: string; amount?: string; coin?: 'xec' | 'doge' } | null {
   const text = raw.trim();
   if (/^[a-f0-9]{32}$/i.test(text)) return { kind: 'wallet', value: text };
 
@@ -26,13 +28,29 @@ function parsePayload(raw: string): { kind: 'address' | 'wallet'; value: string;
   return null;
 }
 
+async function stopScanner(qr: Html5Qrcode): Promise<void> {
+  try {
+    // Do not call clear() here: it throws while SCANNING if stop() has not
+    // finished, and that uncaught cleanup error blanked the other tabs.
+    if (qr.getState() !== Html5QrcodeScannerState.NOT_STARTED) {
+      await qr.stop();
+    }
+  } catch {
+    // Already stopped / never started / camera revoked.
+  }
+}
+
 export function ScanPage() {
   const navigate = useNavigate();
   const { wallets } = useWallets();
   const [manual, setManual] = useState('');
   const [error, setError] = useState('');
-  const regionId = 'abcpay-qr-reader';
-  const scanner = useRef<Html5Qrcode | null>(null);
+  // Unique id per mount so React StrictMode remounts do not share a stale scanner DOM.
+  const reactId = useId().replace(/:/g, '');
+  const regionId = `abcpay-qr-reader-${reactId}`;
+  const walletsRef = useRef(wallets);
+  walletsRef.current = wallets;
+  const navigatingRef = useRef(false);
 
   function handlePayload(raw: string) {
     const parsed = parsePayload(raw);
@@ -41,39 +59,64 @@ export function ScanPage() {
       return;
     }
     if (parsed.kind === 'wallet') {
+      navigatingRef.current = true;
       navigate(`/join-wallet?walletId=${parsed.value}`);
       return;
     }
-    const wallet = wallets.find(w => (parsed.coin ? w.coin === parsed.coin : true) && w.status === 'complete') ?? wallets[0];
+    const list = walletsRef.current;
+    const wallet =
+      list.find(w => (parsed.coin ? w.coin === parsed.coin : true) && w.status === 'complete') ?? list[0];
     if (!wallet) {
       setError('Create a wallet first');
       return;
     }
     const qs = new URLSearchParams({ to: parsed.value });
     if (parsed.amount) qs.set('amount', parsed.amount);
+    navigatingRef.current = true;
     navigate(`/wallet/${wallet.id}/send?${qs.toString()}`);
   }
 
   useEffect(() => {
+    let cancelled = false;
     const qr = new Html5Qrcode(regionId);
-    scanner.current = qr;
-    qr.start(
-      { facingMode: 'environment' },
-      { fps: 8, qrbox: 220 },
-      (decoded: string) => {
-        void qr.stop().catch(() => undefined);
-        handlePayload(decoded);
-      },
-      () => undefined
-    ).catch(() => {
-      setError('Camera unavailable. Paste an address or wallet ID below.');
-    });
-    return () => {
-      void qr.stop().catch(() => undefined);
-      qr.clear();
+
+    const start = async () => {
+      try {
+        await qr.start(
+          { facingMode: 'environment' },
+          { fps: 8, qrbox: 220 },
+          (decoded: string) => {
+            if (cancelled || navigatingRef.current) return;
+            navigatingRef.current = true;
+            void (async () => {
+              await stopScanner(qr);
+              if (!cancelled) handlePayload(decoded);
+            })();
+          },
+          () => undefined
+        );
+        // Tab switched away while getUserMedia was still starting.
+        if (cancelled) {
+          await stopScanner(qr);
+        }
+      } catch {
+        if (!cancelled) {
+          setError('Camera unavailable. Paste an address or wallet ID below.');
+        }
+      }
     };
+
+    void start();
+
+    return () => {
+      cancelled = true;
+      // Await stop in cleanup without calling clear() — clear() races stop() and
+      // throws ("Cannot clear while scan is ongoing"), which blanked other tabs.
+      void stopScanner(qr);
+    };
+    // regionId is stable for this mount; wallets read via ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [regionId]);
 
   return (
     <div className="max-w-lg mx-auto">
@@ -82,7 +125,7 @@ export function ScanPage() {
       </header>
       <div className="px-4 py-6">
         <div id={regionId} className="w-full overflow-hidden rounded-2xl bg-black aspect-square mb-6" />
-        <p className="text-sm text-[var(--abcpay-muted)] mb-3">Or paste an address / wallet ID</p>
+        <p className="text-sm text-[var(--abcpay-muted)] mb-3">Or paste an address / wallet ID below</p>
         <input
           value={manual}
           onChange={e => setManual(e.target.value)}
