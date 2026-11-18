@@ -12,7 +12,7 @@
 #   DRY_RUN=1            (print plan only)
 set -euo pipefail
 
-NEW_VERSION="${NEW_VERSION:-0.34.3}"
+NEW_VERSION="${NEW_VERSION:-0.34.4}"
 XEC_DATA="${XEC_DATA:-/media/data/xecdata}"
 CONF="${CONF:-$XEC_DATA/bitcoin.conf}"
 CONTAINER_FILTER="${CONTAINER_FILTER:-8332}"
