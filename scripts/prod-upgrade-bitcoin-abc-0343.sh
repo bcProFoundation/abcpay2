@@ -75,7 +75,7 @@ for _ in $(seq 1 120); do
 done
 docker stop -t 120 "$CONTAINER_ID"
 
-# Pull target image: same repo as current, new tag if possible; else official.
+# Pull target image: custom devops tags often use 54_0.33.x — official 0.34.x is bitcoinabc/bitcoin-abc.
 if [[ "$IMAGE" == *:* ]]; then
   REPO="${IMAGE%:*}"
   TARGET_IMAGE="${REPO}:${NEW_VERSION}"
@@ -83,29 +83,47 @@ else
   TARGET_IMAGE="bitcoinabc/bitcoin-abc:${NEW_VERSION}"
 fi
 log "pulling $TARGET_IMAGE"
-if ! docker pull "$TARGET_IMAGE"; then
-  TARGET_IMAGE="bitcoinabc/bitcoin-abc:${NEW_VERSION}"
-  log "fallback pull $TARGET_IMAGE"
-  docker pull "$TARGET_IMAGE"
+if ! docker pull "$TARGET_IMAGE" 2>/dev/null; then
+  ALT="${REPO}:54_${NEW_VERSION}"
+  if docker pull "$ALT" 2>/dev/null; then
+    TARGET_IMAGE="$ALT"
+  else
+    TARGET_IMAGE="bitcoinabc/bitcoin-abc:${NEW_VERSION}"
+    log "fallback pull $TARGET_IMAGE"
+    docker pull "$TARGET_IMAGE"
+  fi
 fi
+OFFICIAL_IMAGE=0
+[[ "$TARGET_IMAGE" == bitcoinabc/bitcoin-abc:* ]] && OFFICIAL_IMAGE=1
 
 INSPECT_JSON="$(mktemp)"
 docker inspect "$CONTAINER_ID" >"$INSPECT_JSON"
+CONTAINER_USER="$(docker inspect --format '{{.Config.User}}' "$CONTAINER_ID" 2>/dev/null || true)"
 docker rm "$CONTAINER_ID" || true
 
 log "recreating container (same hostconfig as before)"
-python3 <<'PY'
+export INSPECT_JSON TARGET_IMAGE NAME CONTAINER_USER OFFICIAL_IMAGE
+python3 - "$INSPECT_JSON" "$TARGET_IMAGE" "$NAME" <<'PY'
 import json
+import os
 import subprocess
 import sys
 
 inspect_path, target_image, container_name = sys.argv[1:4]
+official = os.environ.get("OFFICIAL_IMAGE") == "1"
+run_user = (os.environ.get("CONTAINER_USER") or "").strip()
+
 with open(inspect_path) as f:
     data = json.load(f)[0]
 hc = data["HostConfig"]
 cfg = data["Config"]
 
 cmd = ["docker", "run", "-d", "--name", container_name]
+if run_user:
+    cmd += ["--user", run_user]
+elif official:
+    cmd += ["--user", "1000:1000"]
+
 net = (hc.get("NetworkMode") or "").strip()
 if net and net not in ("default", "bridge"):
     cmd += ["--network", net]
@@ -121,17 +139,24 @@ for port, specs in (hc.get("PortBindings") or {}).items():
         container_port = port.split("/")[0]
         cmd += ["-p", f"{host}:{container_port}"]
 
-entry = cfg.get("Entrypoint")
-if entry:
-    cmd += ["--entrypoint", entry[0] if isinstance(entry, list) else str(entry)]
+if official:
+    cmd.append(target_image)
+    cmd += [
+        "bitcoind",
+        "-conf=/usr/app/bitcoin/bitcoin.conf",
+        "-datadir=/usr/app/bitcoin/database",
+    ]
+else:
+    entry = cfg.get("Entrypoint")
+    if entry:
+        cmd += ["--entrypoint", entry[0] if isinstance(entry, list) else str(entry)]
+    args = cfg.get("Cmd") or ["./start-bitcoind.sh"]
+    cmd.append(target_image)
+    cmd.extend(args if isinstance(args, list) else [args])
 
-args = cfg.get("Cmd") or ["./start-bitcoind.sh"]
-cmd.append(target_image)
-cmd.extend(args if isinstance(args, list) else [args])
 print("$", subprocess.list2cmdline(cmd))
 subprocess.check_call(cmd)
 PY
-"$INSPECT_JSON" "$TARGET_IMAGE" "$NAME"
 
 rm -f "$INSPECT_JSON"
 
