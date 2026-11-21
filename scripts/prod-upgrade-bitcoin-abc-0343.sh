@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Upgrade eCash Bitcoin ABC on abcpay.cash from 0.33.x to 0.34.3 (Docker host).
+# Upgrade eCash Bitcoin ABC on abcpay.cash (Docker host; default 0.34.5).
 # Requires: docker group or root. Run ON the prod VM (e.g. as devops).
 #
 # Usage:
@@ -8,11 +8,11 @@
 #   CONTAINER_ID=55a0755d8724 bash scripts/prod-upgrade-bitcoin-abc-0343.sh
 #
 # Env:
-#   NEW_VERSION=0.34.3   (default)
+#   NEW_VERSION=0.34.5   (default)
 #   DRY_RUN=1            (print plan only)
 set -euo pipefail
 
-NEW_VERSION="${NEW_VERSION:-0.34.4}"
+NEW_VERSION="${NEW_VERSION:-0.34.5}"
 XEC_DATA="${XEC_DATA:-/media/data/xecdata}"
 CONF="${CONF:-$XEC_DATA/bitcoin.conf}"
 CONTAINER_FILTER="${CONTAINER_FILTER:-8332}"
